@@ -1,5 +1,5 @@
 ---
-name: "REPO"
+name: "wow-character-analyzer agent"
 description: "Project-aware coding agent for wow-character-analyzer."
 ---
 
