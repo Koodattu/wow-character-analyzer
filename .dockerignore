@@ -1,0 +1,40 @@
+# Root-level .dockerignore — used by frontend build context (repo root)
+# Excludes heavy/unnecessary files from the Docker build context
+
+# Dependencies (each stage installs its own)
+**/node_modules
+
+# Build artifacts
+frontend/.next
+frontend/out
+backend/dist
+
+# Version control
+.git
+**/.gitignore
+
+# Documentation (not needed in images)
+docs
+*.md
+LICENSE
+
+# Environment files (passed via compose, not baked into images)
+.env*
+!.env.example
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+*.pem
+
+# Docker files themselves
+**/Dockerfile
+docker-compose.yml
+docker
+
+# Test / coverage
+**/coverage
+
+# Lock files are INCLUDED (needed for frozen installs)
+# Do NOT ignore bun.lock
