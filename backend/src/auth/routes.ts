@@ -249,7 +249,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       client_id: BATTLENET_CLIENT_ID,
       redirect_uri: BATTLENET_REDIRECT_URI,
       response_type: "code",
-      scope: "openid",
+      scope: "openid wow.profile",
       state,
     });
 

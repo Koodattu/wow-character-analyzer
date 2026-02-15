@@ -5,6 +5,7 @@ import { db } from "../db";
 import { oauthAccounts, characters, characterQueue, processingState } from "../db/schema";
 import { requireAuth } from "../auth/middleware";
 import { fetchUserCharacters } from "../services/blizzard";
+import { refreshBattleNetToken } from "../auth/helpers";
 
 export const userRoutes = new Elysia({ prefix: "/api/user" })
   .use(requireAuth)
@@ -26,8 +27,20 @@ export const userRoutes = new Elysia({ prefix: "/api/user" })
       };
     }
 
+    // Refresh token if expired or about to expire
+    let token = bnetAccount.accessToken;
+    if (bnetAccount.expiresAt && bnetAccount.expiresAt.getTime() < Date.now() + 60_000) {
+      if (bnetAccount.refreshToken) {
+        try {
+          token = await refreshBattleNetToken(bnetAccount.id, bnetAccount.refreshToken);
+        } catch (e) {
+          console.warn("[User] Token refresh failed, using existing token", e);
+        }
+      }
+    }
+
     try {
-      const wowCharacters = await fetchUserCharacters(bnetAccount.accessToken);
+      const wowCharacters = await fetchUserCharacters(token);
 
       // Filter to level 70+ characters
       const filtered = wowCharacters
