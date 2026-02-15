@@ -22,6 +22,11 @@ COPY backend/src ./backend/src
 COPY backend/package.json ./backend/package.json
 COPY backend/tsconfig.json ./backend/tsconfig.json
 
+# Install backend dependencies so TypeScript can resolve the full import chain
+WORKDIR /app/backend
+COPY backend/bun.lock ./
+RUN bun install --frozen-lockfile
+
 # Copy frontend source and deps
 WORKDIR /app/frontend
 COPY --from=deps /app/node_modules ./node_modules
