@@ -15,19 +15,21 @@ You are an AI-first software engineer. Your output must be predictable, debuggab
 
 ## Stack (non-negotiable)
 
-| Layer       | Technology                                               | Notes                                                                |
-| ----------- | -------------------------------------------------------- | -------------------------------------------------------------------- |
-| Runtime     | **Bun**                                                  | All commands: `bun`, `bunx`. NEVER `npm`, `npx`, `node`.             |
-| Backend     | **Elysia** (port 3001)                                   | Bun-native. Methods MUST be chained.                                 |
-| Frontend    | **Next.js 16** App Router + **React 19** (port 3000)     | Server Components by default.                                        |
-| Database    | **PostgreSQL** via **Drizzle ORM**                       | No raw SQL.                                                          |
-| Styling     | **Tailwind CSS v4**                                      | PostCSS plugin. NO `tailwind.config.js`. Config via `@theme` in CSS. |
-| Auth        | **Lucia v3**                                             | Session-based, PostgreSQL-stored. HTTP-only cookies. No JWTs.        |
-| Type bridge | **Eden Treaty** (frontend) ← `export type App` (backend) | Single source of truth for API types.                                |
-| Validation  | **TypeBox** (`t` from Elysia)                            | Every route with body/params/query MUST have a schema.               |
-| IDs         | **cuid2**                                                | All primary keys. Never auto-increment.                              |
-| Icons       | `lucide-react`                                           |                                                                      |
-| Class utils | `cn()` = `clsx` + `tailwind-merge`                       |                                                                      |
+| Layer       | Technology                                               | Notes                                                                 |
+| ----------- | -------------------------------------------------------- | --------------------------------------------------------------------- |
+| Runtime     | **Bun**                                                  | All commands: `bun`, `bunx`. NEVER `npm`, `npx`, `node`.              |
+| Backend     | **Elysia** (port 3001)                                   | Bun-native. Methods MUST be chained.                                  |
+| Frontend    | **Next.js 16** App Router + **React 19** (port 3000)     | Server Components by default.                                         |
+| Database    | **PostgreSQL** via **Drizzle ORM**                       | No raw SQL.                                                           |
+| Styling     | **Tailwind CSS v4**                                      | PostCSS plugin. NO `tailwind.config.js`. Config via `@theme` in CSS.  |
+| Auth        | **Lucia v3**                                             | Session-based, PostgreSQL-stored. HTTP-only cookies. No JWTs.         |
+| Type bridge | **Eden Treaty** (frontend) ← `export type App` (backend) | Single source of truth for API types.                                 |
+| Validation  | **TypeBox** (`t` from Elysia)                            | Every route with body/params/query MUST have a schema.                |
+| IDs         | **cuid2**                                                | All primary keys. Never auto-increment.                               |
+| UI          | **shadcn/ui**                                            | Source code in `@/components/ui`. NOT a package — owned source files. |
+| Hooks       | **@mantine/hooks**                                       | Logic/utility hooks only. Never import Mantine _components_.          |
+| Icons       | `lucide-react`                                           |                                                                       |
+| Class utils | `cn()` = `clsx` + `tailwind-merge`                       |                                                                       |
 
 ## Critical Backend Rules
 
@@ -60,6 +62,13 @@ app.get("/foo", () => "bar");
 **Server Components by default.** Add `"use client"` ONLY for `useState`, `useEffect`, event handlers, or browser APIs.
 
 **Use `@/` alias** for all imports. Use `cn()` for class names.
+
+## UI Components & Hooks
+
+- Check `@/components/ui` before creating new elements — compose shadcn primitives (`Button`, `Card`, `Dialog`, etc.) into feature "Blocks" instead of raw HTML.
+- Style with Tailwind utilities + `cn()`. Mobile-first. Theme via CSS variables in `globals.css` (`@layer base`) — never edit component source for theming.
+- Preserve ARIA attributes and Radix primitives in shadcn components. Named exports for all components.
+- Prefer `@mantine/hooks` over custom `useEffect`/`useState` boilerplate: `useMediaQuery` (SSR: `initialValue` + `getInitialValueInEffect: false`), `useDebouncedValue`, `useLocalStorage`/`useSessionStorage`, `useDisclosure`.
 
 ## Security
 
