@@ -2,17 +2,25 @@
 import { rateLimitManager } from "./rate-limiter";
 
 const RAIDERIO_BASE = "https://raider.io/api/v1";
-const API_DELAY_MS = 200;
+const RAIDERIO_API_KEY = process.env.RAIDERIO_API_KEY ?? "";
+const API_DELAY_MS = RAIDERIO_API_KEY ? 100 : 200; // authenticated clients can be faster
 
 async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Append the API key as a query parameter if configured */
+function withApiKey(url: string): string {
+  if (!RAIDERIO_API_KEY) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}apikey=${RAIDERIO_API_KEY}`;
 }
 
 async function raiderioFetch(url: string): Promise<any> {
   rateLimitManager.trackRequest("raiderio");
   await sleep(API_DELAY_MS);
 
-  const response = await fetch(url);
+  const response = await fetch(withApiKey(url));
 
   if (!response.ok) {
     if (response.status === 400 || response.status === 404) return null;

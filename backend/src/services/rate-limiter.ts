@@ -27,10 +27,12 @@ class RateLimitManager {
       resetAt: Date.now() + 3600_000,
       requestsThisHour: 0,
     });
+    // Raider.IO: 200 req/min unauthenticated, higher with API key
+    const raiderioLimit = process.env.RAIDERIO_API_KEY ? 600 : 200;
     this.limits.set("raiderio", {
-      remaining: Infinity,
-      limit: Infinity,
-      resetAt: Date.now() + 3600_000,
+      remaining: raiderioLimit,
+      limit: raiderioLimit,
+      resetAt: Date.now() + 60_000,
       requestsThisHour: 0,
     });
   }
