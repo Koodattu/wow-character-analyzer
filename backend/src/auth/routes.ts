@@ -1,4 +1,4 @@
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { eq, and } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { lucia } from "./lucia";
@@ -88,6 +88,11 @@ async function getBattleNetUser(accessToken: string): Promise<{
   return response.json();
 }
 
+/**
+ * Find or create a user for the given OAuth provider.
+ * If `currentUserId` is provided (user is already logged in), the provider
+ * account is linked to the existing user instead of creating a new one.
+ */
 async function findOrCreateUser(
   provider: "discord" | "battlenet",
   providerAccountId: string,
@@ -96,8 +101,9 @@ async function findOrCreateUser(
   expiresAt: Date | undefined,
   username: string | null,
   avatarUrl: string | null,
+  currentUserId?: string | null,
 ): Promise<string> {
-  // Check if an OAuth account already exists
+  // Check if an OAuth account already exists for this provider + ID
   const existing = await db
     .select()
     .from(oauthAccounts)
@@ -105,7 +111,25 @@ async function findOrCreateUser(
     .limit(1);
 
   if (existing.length > 0) {
-    const userId = existing[0].userId;
+    const existingAccount = existing[0];
+
+    // If user is logged in and the provider account belongs to a DIFFERENT user,
+    // re-link the provider account to the current user (account merge scenario).
+    if (currentUserId && existingAccount.userId !== currentUserId) {
+      await db
+        .update(oauthAccounts)
+        .set({
+          userId: currentUserId,
+          accessToken,
+          refreshToken: refreshToken ?? null,
+          expiresAt: expiresAt ?? null,
+        })
+        .where(eq(oauthAccounts.id, existingAccount.id));
+
+      return currentUserId;
+    }
+
+    const userId = existingAccount.userId;
 
     // Update tokens
     await db
@@ -115,7 +139,7 @@ async function findOrCreateUser(
         refreshToken: refreshToken ?? null,
         expiresAt: expiresAt ?? null,
       })
-      .where(eq(oauthAccounts.id, existing[0].id));
+      .where(eq(oauthAccounts.id, existingAccount.id));
 
     // Update user info
     await db
@@ -127,6 +151,26 @@ async function findOrCreateUser(
       .where(eq(users.id, userId));
 
     return userId;
+  }
+
+  // No existing OAuth account for this provider+ID.
+  // If the user is already logged in, link to their existing account.
+  if (currentUserId) {
+    // Check admin status for Discord linking
+    if (provider === "discord" && ADMIN_DISCORD_IDS.includes(providerAccountId)) {
+      await db.update(users).set({ isAdmin: true }).where(eq(users.id, currentUserId));
+    }
+
+    await db.insert(oauthAccounts).values({
+      userId: currentUserId,
+      provider,
+      providerAccountId,
+      accessToken,
+      refreshToken: refreshToken ?? null,
+      expiresAt: expiresAt ?? null,
+    });
+
+    return currentUserId;
   }
 
   // Create new user
@@ -151,6 +195,25 @@ async function findOrCreateUser(
   });
 
   return userId;
+}
+
+/**
+ * Get linked providers for a user.
+ */
+async function getLinkedProviders(userId: string) {
+  const accounts = await db
+    .select({
+      provider: oauthAccounts.provider,
+      providerAccountId: oauthAccounts.providerAccountId,
+      createdAt: oauthAccounts.createdAt,
+    })
+    .from(oauthAccounts)
+    .where(eq(oauthAccounts.userId, userId));
+
+  return {
+    discord: accounts.find((a) => a.provider === "discord") ?? null,
+    battlenet: accounts.find((a) => a.provider === "battlenet") ?? null,
+  };
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────
@@ -181,7 +244,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     return redirect(`https://discord.com/api/oauth2/authorize?${params.toString()}`);
   })
 
-  .get("/discord/callback", async ({ query, cookie, set, redirect }) => {
+  .get("/discord/callback", async ({ query, cookie, set, redirect, user: currentUser }: any) => {
     const { code, state } = query as { code?: string; state?: string };
     const storedState = cookie?.oauth_state?.value;
 
@@ -214,17 +277,22 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
         username,
         avatarUrl,
+        currentUser?.id ?? null,
       );
 
-      const session = await lucia.createSession(userId, {});
-      const sessionCookie = lucia.createSessionCookie(session.id);
+      // Only create a new session if the user wasn't already logged in
+      // or if the resolved user is different from the current one
+      if (!currentUser || currentUser.id !== userId) {
+        const session = await lucia.createSession(userId, {});
+        const sessionCookie = lucia.createSessionCookie(session.id);
 
-      cookie.auth_session.set({
-        value: sessionCookie.value,
-        ...sessionCookie.attributes,
-      });
+        cookie.auth_session.set({
+          value: sessionCookie.value,
+          ...sessionCookie.attributes,
+        });
+      }
 
-      return redirect(FRONTEND_URL);
+      return redirect(`${FRONTEND_URL}/dashboard`);
     } catch (error) {
       console.error("Discord OAuth callback error:", error);
       set.status = 500;
@@ -256,7 +324,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     return redirect(`https://oauth.battle.net/authorize?${params.toString()}`);
   })
 
-  .get("/battlenet/callback", async ({ query, cookie, set, redirect }) => {
+  .get("/battlenet/callback", async ({ query, cookie, set, redirect, user: currentUser }: any) => {
     const { code, state } = query as { code?: string; state?: string };
     const storedState = cookie?.oauth_state?.value;
 
@@ -284,17 +352,22 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
         bnetUser.battletag ?? null,
         null,
+        currentUser?.id ?? null,
       );
 
-      const session = await lucia.createSession(userId, {});
-      const sessionCookie = lucia.createSessionCookie(session.id);
+      // Only create a new session if the user wasn't already logged in
+      // or if the resolved user is different from the current one
+      if (!currentUser || currentUser.id !== userId) {
+        const session = await lucia.createSession(userId, {});
+        const sessionCookie = lucia.createSessionCookie(session.id);
 
-      cookie.auth_session.set({
-        value: sessionCookie.value,
-        ...sessionCookie.attributes,
-      });
+        cookie.auth_session.set({
+          value: sessionCookie.value,
+          ...sessionCookie.attributes,
+        });
+      }
 
-      return redirect(FRONTEND_URL);
+      return redirect(`${FRONTEND_URL}/dashboard`);
     } catch (error) {
       console.error("Battle.net OAuth callback error:", error);
       set.status = 500;
@@ -318,10 +391,12 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   })
 
   // ── Current User ────────────────────────────────────────────────────
-  .get("/me", ({ user }: any) => {
+  .get("/me", async ({ user }: any) => {
     if (!user) {
       return { user: null };
     }
+
+    const providers = await getLinkedProviders(user.id);
 
     return {
       user: {
@@ -329,6 +404,46 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         username: user.username,
         avatarUrl: user.avatarUrl,
         isAdmin: user.isAdmin,
+        linkedProviders: {
+          discord: !!providers.discord,
+          battlenet: !!providers.battlenet,
+        },
       },
     };
+  })
+
+  // ── Unlink Provider ─────────────────────────────────────────────────
+  .post("/unlink/:provider", async ({ params, user, session, set }: any) => {
+    if (!user || !session) {
+      set.status = 401;
+      return { error: "Unauthorized" };
+    }
+
+    const provider = params.provider as string;
+    if (provider !== "discord" && provider !== "battlenet") {
+      set.status = 400;
+      return { error: "Invalid provider. Must be 'discord' or 'battlenet'." };
+    }
+
+    // Count how many providers the user has linked
+    const allAccounts = await db
+      .select()
+      .from(oauthAccounts)
+      .where(eq(oauthAccounts.userId, user.id));
+
+    if (allAccounts.length <= 1) {
+      set.status = 400;
+      return { error: "Cannot unlink your only login provider. Link another provider first." };
+    }
+
+    // Find and delete the provider account
+    const targetAccount = allAccounts.find((a) => a.provider === provider);
+    if (!targetAccount) {
+      set.status = 404;
+      return { error: `No ${provider} account linked.` };
+    }
+
+    await db.delete(oauthAccounts).where(eq(oauthAccounts.id, targetAccount.id));
+
+    return { success: true };
   });

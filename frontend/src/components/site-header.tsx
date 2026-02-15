@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Search, Shield, LogIn, User, Settings } from "lucide-react";
+import { Search, Shield, LogIn, User, Settings, LogOut, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 
 export function SiteHeader() {
   const pathname = usePathname();
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, logout } = useAuth();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
@@ -32,12 +34,6 @@ export function SiteHeader() {
         <div className="flex flex-1 items-center justify-end gap-2">
           {isLoading ? null : user ? (
             <>
-              <Link href="/dashboard">
-                <Button variant="ghost" size="sm" className="gap-1.5">
-                  <User className="h-4 w-4" />
-                  <span className="hidden sm:inline">{user.username ?? "Dashboard"}</span>
-                </Button>
-              </Link>
               {user.isAdmin && (
                 <Link href="/admin">
                   <Button variant="ghost" size="sm" className="gap-1.5">
@@ -46,6 +42,33 @@ export function SiteHeader() {
                   </Button>
                 </Link>
               )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="gap-1.5">
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={user.avatarUrl ?? undefined} alt={user.username ?? "User"} />
+                      <AvatarFallback>
+                        <User className="h-3.5 w-3.5" />
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="hidden sm:inline">{user.username ?? "Account"}</span>
+                    <ChevronDown className="h-3 w-3 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem asChild>
+                    <Link href="/dashboard" className="flex items-center gap-2 cursor-pointer">
+                      <User className="h-4 w-4" />
+                      Dashboard
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={logout} className="flex items-center gap-2 cursor-pointer text-destructive focus:text-destructive">
+                    <LogOut className="h-4 w-4" />
+                    Log out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           ) : (
             <Link href="/login">
