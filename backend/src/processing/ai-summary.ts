@@ -143,13 +143,13 @@ export async function generateAiSummary(characterId: string): Promise<void> {
           },
           { role: "user", content: prompt },
         ],
-        temperature: 0.7,
-        max_tokens: 1500,
+        max_completion_tokens: 1500,
       }),
     });
 
     if (!response.ok) {
-      log.error({ status: response.status }, "OpenAI API error");
+      const errorBody = await response.text();
+      log.error({ status: response.status, body: errorBody }, "OpenAI API error");
       return;
     }
 
