@@ -1,5 +1,8 @@
 // ─── WarcraftLogs API v2 Client (GraphQL) ──────────────────────────────
 import { rateLimitManager } from "./rate-limiter";
+import { log as rootLog } from "../lib/logger";
+
+const log = rootLog.child({ module: "wcl" });
 
 const WCL_CLIENT_ID = process.env.WCL_CLIENT_ID ?? "";
 const WCL_CLIENT_SECRET = process.env.WCL_CLIENT_SECRET ?? "";
@@ -130,7 +133,7 @@ export async function fetchEncounterRankings(
 
     return rankings;
   } catch (error) {
-    console.error(`[WCL] Failed to fetch rankings for ${characterName} encounter ${encounterId}:`, error);
+    log.error({ err: error, characterName, encounterId }, "Failed to fetch WCL rankings");
     return null;
   }
 }

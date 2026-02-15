@@ -11,7 +11,9 @@ import { fetchRaiderioCharacter, fetchRaiderioHistoricalScores } from "../servic
 import { computeCharacterProfile, computeBossStats } from "../processing/profile";
 import { generateAiSummary } from "../processing/ai-summary";
 import { rateLimitManager } from "../services/rate-limiter";
+import { log as rootLog } from "../lib/logger";
 
+const log = rootLog.child({ module: "queue" });
 // ─── Queue Configuration ───────────────────────────────────────────────
 
 const lightweightQueue = new Queue("lightweight-scan", {
@@ -76,7 +78,7 @@ const lightweightWorker = new Worker(
       region: string;
     };
 
-    console.log(`[Lightweight] Processing: ${name}-${realmSlug} (${characterId})`);
+    log.info({ characterId, name, realmSlug }, "Lightweight scan started");
 
     try {
       // Update status
@@ -135,7 +137,7 @@ const lightweightWorker = new Worker(
 
       for (const encounterId of TRACKED_ENCOUNTERS) {
         if (!rateLimitManager.canMakeRequest("wcl")) {
-          console.log("[Lightweight] WCL rate limit reached, waiting...");
+          log.warn("WCL rate limit reached, waiting");
           await new Promise((resolve) => setTimeout(resolve, 5000));
         }
 
@@ -238,7 +240,7 @@ const lightweightWorker = new Worker(
 
       await db.update(characterQueue).set({ status: "completed" }).where(eq(characterQueue.characterId, characterId));
 
-      console.log(`[Lightweight] Completed: ${name}-${realmSlug}`);
+      log.info({ name, realmSlug }, "Lightweight scan completed");
 
       // Queue deep scan
       await deepScanQueue.add("deep-scan", {
@@ -248,7 +250,7 @@ const lightweightWorker = new Worker(
         region,
       });
     } catch (error) {
-      console.error(`[Lightweight] Error processing ${name}-${realmSlug}:`, error);
+      log.error({ err: error, name, realmSlug }, "Lightweight scan failed");
 
       await db
         .update(processingState)
@@ -287,7 +289,7 @@ const deepScanWorker = new Worker(
       region: string;
     };
 
-    console.log(`[DeepScan] Processing: ${name}-${realmSlug} (${characterId})`);
+    log.info({ characterId, name, realmSlug }, "Deep scan started");
 
     try {
       await db
@@ -318,9 +320,9 @@ const deepScanWorker = new Worker(
       // Regenerate AI summary with richer data
       await generateAiSummary(characterId);
 
-      console.log(`[DeepScan] Completed: ${name}-${realmSlug}`);
+      log.info({ name, realmSlug }, "Deep scan completed");
     } catch (error) {
-      console.error(`[DeepScan] Error processing ${name}-${realmSlug}:`, error);
+      log.error({ err: error, name, realmSlug }, "Deep scan failed");
 
       await db
         .update(processingState)
@@ -343,11 +345,11 @@ const deepScanWorker = new Worker(
 rateLimitManager.registerPauseResume(
   "wcl",
   () => {
-    console.log("[Queue] Pausing lightweight worker due to WCL rate limit");
+    log.info("Pausing lightweight worker due to WCL rate limit");
     lightweightWorker.pause();
   },
   () => {
-    console.log("[Queue] Resuming lightweight worker");
+    log.info("Resuming lightweight worker");
     lightweightWorker.resume();
   },
 );
@@ -360,7 +362,7 @@ export async function addToLightweightQueue(characterId: string, name: string, r
     realmSlug,
     region,
   });
-  console.log(`[Queue] Added ${name}-${realmSlug} to lightweight queue`);
+  log.info({ name, realmSlug }, "Added to lightweight queue");
 }
 
 export async function addToDeepScanQueue(characterId: string, name: string, realmSlug: string, region: string) {
@@ -370,7 +372,7 @@ export async function addToDeepScanQueue(characterId: string, name: string, real
     realmSlug,
     region,
   });
-  console.log(`[Queue] Added ${name}-${realmSlug} to deep-scan queue`);
+  log.info({ name, realmSlug }, "Added to deep-scan queue");
 }
 
 export function getQueues() {
@@ -381,4 +383,4 @@ export function getWorkers() {
   return { lightweightWorker, deepScanWorker };
 }
 
-console.log("[Queue] BunQueue workers initialized");
+log.info("BunQueue workers initialized");

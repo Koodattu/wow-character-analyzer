@@ -4,9 +4,11 @@ import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db";
 import { characters, characterProfiles, characterBossStats, wclParses, wclDeaths, wclCasts, raiderioScores, raiderioRuns } from "../db/schema";
 import { getParseTier } from "../utils/parse-tiers";
+import { log as rootLog } from "../lib/logger";
 
+const log = rootLog.child({ module: "processing" });
 export async function computeCharacterProfile(characterId: string): Promise<void> {
-  console.log(`[Processing] Computing profile for character ${characterId}`);
+  log.debug({ characterId }, "Computing profile");
 
   // Fetch all raw data
   const [parsesData, deathsData, castsData, scoresData, runsData] = await Promise.all([
@@ -93,12 +95,12 @@ export async function computeCharacterProfile(characterId: string): Promise<void
     await db.insert(characterProfiles).values(profileData);
   }
 
-  console.log(`[Processing] Profile computed for ${characterId}: ${kills.length} kills, avg parse ${avgParse?.toFixed(1)}`);
+  log.info({ characterId, kills: kills.length, avgParse: avgParse?.toFixed(1) }, "Profile computed");
 }
 
 // ─── Per-Boss Stats Computation ────────────────────────────────────────
 export async function computeBossStats(characterId: string): Promise<void> {
-  console.log(`[Processing] Computing boss stats for character ${characterId}`);
+  log.debug({ characterId }, "Computing boss stats");
 
   const parsesData = await db.select().from(wclParses).where(eq(wclParses.characterId, characterId));
 
@@ -156,5 +158,5 @@ export async function computeBossStats(characterId: string): Promise<void> {
     }
   }
 
-  console.log(`[Processing] Boss stats computed for ${characterId}: ${byEncounter.size} encounters`);
+  log.info({ characterId, encounters: byEncounter.size }, "Boss stats computed");
 }

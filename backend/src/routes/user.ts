@@ -6,6 +6,7 @@ import { oauthAccounts, characters, characterQueue, processingState } from "../d
 import { requireAuth } from "../auth/middleware";
 import { fetchUserCharacters } from "../services/blizzard";
 import { refreshBattleNetToken } from "../auth/helpers";
+import { log } from "../lib/logger";
 
 export const userRoutes = new Elysia({ prefix: "/api/user" })
   .use(requireAuth)
@@ -34,7 +35,7 @@ export const userRoutes = new Elysia({ prefix: "/api/user" })
         try {
           token = await refreshBattleNetToken(bnetAccount.id, bnetAccount.refreshToken);
         } catch (e) {
-          console.warn("[User] Token refresh failed, using existing token", e);
+          log.warn({ err: e }, "Token refresh failed, using existing token");
         }
       }
     }
@@ -58,7 +59,7 @@ export const userRoutes = new Elysia({ prefix: "/api/user" })
 
       return { characters: filtered, linked: true };
     } catch (error) {
-      console.error("[User] Failed to fetch Bnet characters:", error);
+      log.error({ err: error }, "Failed to fetch Bnet characters");
       set.status = 500;
       return { error: "Failed to fetch characters from Battle.net", linked: true };
     }

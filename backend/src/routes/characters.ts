@@ -16,6 +16,7 @@ import {
 } from "../db/schema";
 import { authPlugin, requireAuth } from "../auth/middleware";
 import { createId } from "@paralleldrive/cuid2";
+import { log } from "../lib/logger";
 
 export const characterRoutes = new Elysia({ prefix: "/api/characters" })
   .use(authPlugin)
@@ -285,7 +286,7 @@ export const characterRoutes = new Elysia({ prefix: "/api/characters" })
         const { addToLightweightQueue } = await import("../queue");
         await addToLightweightQueue(existing.id, existing.name, existing.realmSlug, existing.region);
       } catch (error) {
-        console.error("[Queue] Failed to add to queue:", error);
+        log.error({ err: error }, "Failed to add character to queue");
       }
 
       return {
@@ -364,7 +365,7 @@ export const characterRoutes = new Elysia({ prefix: "/api/characters" })
           const { addToLightweightQueue } = await import("../queue");
           await addToLightweightQueue(existing.id, existing.name, existing.realmSlug, existing.region);
         } catch (error) {
-          console.error("[Queue] Failed to add to queue:", error);
+          log.error({ err: error }, "Failed to add character to queue");
         }
 
         results.push({ characterId: existing.id, name: charName });

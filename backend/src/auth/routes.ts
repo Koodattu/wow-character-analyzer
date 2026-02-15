@@ -5,6 +5,7 @@ import { lucia } from "./lucia";
 import { authPlugin } from "./middleware";
 import { db } from "../db";
 import { users, oauthAccounts } from "../db/schema";
+import { log } from "../lib/logger";
 
 // ─── Environment Variables ───────────────────────────────────────────────
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID!;
@@ -294,7 +295,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
 
       return redirect(`${FRONTEND_URL}/dashboard`);
     } catch (error) {
-      console.error("Discord OAuth callback error:", error);
+      log.error({ err: error }, "Discord OAuth callback error");
       set.status = 500;
       return { error: "Authentication failed" };
     }
@@ -369,7 +370,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
 
       return redirect(`${FRONTEND_URL}/dashboard`);
     } catch (error) {
-      console.error("Battle.net OAuth callback error:", error);
+      log.error({ err: error }, "Battle.net OAuth callback error");
       set.status = 500;
       return { error: "Authentication failed" };
     }

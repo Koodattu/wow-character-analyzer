@@ -3,9 +3,9 @@
 import { db } from "./index";
 import { expansions, seasons, raids, bosses, dungeons } from "./schema";
 import { eq } from "drizzle-orm";
-
+import { log } from "../lib/logger";
 async function seed() {
-  console.log("[Seed] Starting database seed...");
+  log.info("Starting database seed");
 
   // ── The War Within ─────────────────────────────────────────────────
   const [tww] = await db
@@ -170,7 +170,7 @@ async function seed() {
     }
   }
 
-  console.log("[Seed] Database seeded successfully!");
+  log.info("Database seeded successfully");
 }
 
 export { seed };
@@ -180,7 +180,7 @@ if (import.meta.main) {
   seed()
     .then(() => process.exit(0))
     .catch((err) => {
-      console.error("[Seed] Failed:", err);
+      log.error({ err }, "Seed failed");
       process.exit(1);
     });
 }

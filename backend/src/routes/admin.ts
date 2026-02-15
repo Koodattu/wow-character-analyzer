@@ -5,6 +5,7 @@ import { db } from "../db";
 import { characters, characterQueue, processingState, characterProfiles, characterBossStats, characterAiSummary, expansions, seasons, raids, bosses, dungeons } from "../db/schema";
 import { requireAdmin } from "../auth/middleware";
 import { rateLimitManager } from "../services/rate-limiter";
+import { log } from "../lib/logger";
 
 export const adminRoutes = new Elysia({ prefix: "/api/admin" })
   .use(requireAdmin)
@@ -108,7 +109,7 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
             const { addToLightweightQueue } = await import("../queue");
             await addToLightweightQueue(char.id, char.name, char.realmSlug, char.region);
           } catch (error) {
-            console.error("[Admin] Failed to requeue:", error);
+            log.error({ err: error, characterId: char.id }, "Failed to requeue character");
           }
         }
 
@@ -138,7 +139,7 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
             const { addToLightweightQueue } = await import("../queue");
             await addToLightweightQueue(char.id, char.name, char.realmSlug, char.region);
           } catch (error) {
-            console.error("[Admin] Failed to requeue:", error);
+            log.error({ err: error, characterId }, "Failed to requeue character");
           }
         }
 

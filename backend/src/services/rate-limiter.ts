@@ -1,5 +1,8 @@
 // ─── Rate Limit Manager ────────────────────────────────────────────────
 // Global singleton that tracks API rate limits across all external services
+import { log as rootLog } from "../lib/logger";
+
+const log = rootLog.child({ module: "rate-limit" });
 
 interface RateLimitState {
   remaining: number;
@@ -59,15 +62,15 @@ class RateLimitManager {
 
     // If WCL is near exhaustion, pause processing
     if (service === "wcl" && remaining <= 10) {
-      console.log(`[RateLimit] WCL points nearly exhausted (${remaining} remaining). Pausing...`);
+      log.warn({ remaining }, "WCL points nearly exhausted, pausing");
       const pauseFn = this.pauseCallbacks.get("wcl");
       if (pauseFn) pauseFn();
 
       // Schedule resume
       const timeUntilReset = Math.max(0, current.resetAt - Date.now()) + 5000;
-      console.log(`[RateLimit] Will resume WCL processing in ${Math.round(timeUntilReset / 1000)}s`);
+      log.info({ resumeInSeconds: Math.round(timeUntilReset / 1000) }, "Will resume WCL processing");
       setTimeout(() => {
-        console.log("[RateLimit] Resuming WCL processing");
+        log.info("Resuming WCL processing");
         const resumeFn = this.resumeCallbacks.get("wcl");
         if (resumeFn) resumeFn();
       }, timeUntilReset);

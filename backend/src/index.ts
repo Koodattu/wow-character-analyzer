@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { swagger } from "@elysiajs/swagger";
+import { log } from "./lib/logger";
 import { runMigrations } from "./db/migrate";
 import { authRoutes } from "./auth/routes";
 import { characterRoutes } from "./routes/characters";
@@ -21,6 +22,7 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "http://localhost:3000";
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 
 const app = new Elysia()
+  .use(log.into({ autoLogging: true }))
   .use(
     cors({
       origin: CORS_ORIGIN,
@@ -40,7 +42,7 @@ const app = new Elysia()
     }),
   )
   .onError(({ error, set }) => {
-    console.error("[Server] Error:", error);
+    log.error({ err: error }, "Unhandled server error");
 
     const message = "message" in error ? error.message : String(error);
 
@@ -70,7 +72,7 @@ const app = new Elysia()
   .use(adminRoutes)
   .listen(PORT);
 
-console.log(`🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`);
+log.info({ host: app.server?.hostname, port: app.server?.port }, "🦊 Elysia is running");
 
 // THE MOST IMPORTANT LINE:
 export type App = typeof app;

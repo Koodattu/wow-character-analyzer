@@ -3,6 +3,9 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { characters, characterProfiles, characterBossStats, characterAiSummary, raiderioScores } from "../db/schema";
 import { getParseTier } from "../utils/parse-tiers";
+import { log as rootLog } from "../lib/logger";
+
+const log = rootLog.child({ module: "ai" });
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -101,11 +104,11 @@ function buildPrompt(charName: string, className: string | null, specName: strin
 
 export async function generateAiSummary(characterId: string): Promise<void> {
   if (!OPENAI_API_KEY) {
-    console.log("[AI] No OpenAI API key configured, skipping summary generation");
+    log.info("No OpenAI API key configured, skipping summary generation");
     return;
   }
 
-  console.log(`[AI] Generating summary for character ${characterId}`);
+  log.debug({ characterId }, "Generating AI summary");
 
   // Fetch character data
   const [char] = await db.select().from(characters).where(eq(characters.id, characterId)).limit(1);
@@ -146,7 +149,7 @@ export async function generateAiSummary(characterId: string): Promise<void> {
     });
 
     if (!response.ok) {
-      console.error(`[AI] OpenAI API error: ${response.status}`);
+      log.error({ status: response.status }, "OpenAI API error");
       return;
     }
 
@@ -160,7 +163,7 @@ export async function generateAiSummary(characterId: string): Promise<void> {
       const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
       parsed = JSON.parse(jsonMatch?.[0] ?? rawResponse);
     } catch {
-      console.error("[AI] Failed to parse AI response as JSON");
+      log.error("Failed to parse AI response as JSON");
       parsed = {
         verdict: rawResponse.slice(0, 200),
         summary: rawResponse,
@@ -191,8 +194,8 @@ export async function generateAiSummary(characterId: string): Promise<void> {
       await db.insert(characterAiSummary).values(summaryData);
     }
 
-    console.log(`[AI] Summary generated for ${char.name}`);
+    log.info({ characterName: char.name }, "AI summary generated");
   } catch (error) {
-    console.error("[AI] Failed to generate summary:", error);
+    log.error({ err: error, characterId }, "Failed to generate AI summary");
   }
 }
