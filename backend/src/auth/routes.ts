@@ -149,16 +149,25 @@ async function findOrCreateUser(
       .where(eq(oauthAccounts.id, existingAccount.id));
 
     // Recalculate admin status on every Discord login
-    const updateFields: Record<string, unknown> = {
-      username: username ?? undefined,
-      avatarUrl: avatarUrl ?? undefined,
-    };
     if (provider === "discord") {
-      updateFields.isAdmin = ADMIN_DISCORD_IDS.includes(providerAccountId);
+      const shouldBeAdmin = ADMIN_DISCORD_IDS.includes(providerAccountId);
+      await db
+        .update(users)
+        .set({
+          username: username ?? undefined,
+          avatarUrl: avatarUrl ?? undefined,
+          isAdmin: shouldBeAdmin,
+        })
+        .where(eq(users.id, userId));
+    } else {
+      await db
+        .update(users)
+        .set({
+          username: username ?? undefined,
+          avatarUrl: avatarUrl ?? undefined,
+        })
+        .where(eq(users.id, userId));
     }
-
-    // Update user info
-    await db.update(users).set(updateFields).where(eq(users.id, userId));
 
     return userId;
   }
@@ -290,17 +299,18 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         currentUser?.id ?? null,
       );
 
-      // Only create a new session if the user wasn't already logged in
-      // or if the resolved user is different from the current one
-      if (!currentUser || currentUser.id !== userId) {
-        const session = await lucia.createSession(userId, {});
-        const sessionCookie = lucia.createSessionCookie(session.id);
-
-        cookie.auth_session.set({
-          value: sessionCookie.value,
-          ...sessionCookie.attributes,
-        });
+      // Always create a fresh session after Discord login
+      // (admin status or other attributes may have changed)
+      if (currentUser?.id) {
+        await lucia.invalidateSession(cookie.auth_session?.value ?? "");
       }
+      const session = await lucia.createSession(userId, {});
+      const sessionCookie = lucia.createSessionCookie(session.id);
+
+      cookie.auth_session.set({
+        value: sessionCookie.value,
+        ...sessionCookie.attributes,
+      });
 
       return redirect(`${FRONTEND_URL}/dashboard`);
     } catch (error) {

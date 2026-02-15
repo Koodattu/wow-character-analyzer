@@ -16,8 +16,8 @@ export const lucia = new Lucia(adapter, {
   },
   getUserAttributes: (attributes) => ({
     username: attributes.username,
-    avatarUrl: attributes.avatar_url,
-    isAdmin: attributes.is_admin,
+    avatarUrl: attributes.avatarUrl,
+    isAdmin: attributes.isAdmin,
   }),
 });
 
@@ -27,13 +27,15 @@ export async function validateSession(sessionId: string) {
 }
 
 // Module augmentation for Lucia types
+// NOTE: DrizzlePostgreSQLAdapter returns Drizzle's camelCase column names,
+// NOT the raw SQL column names.
 declare module "lucia" {
   interface Register {
     Lucia: typeof lucia;
     DatabaseUserAttributes: {
       username: string | null;
-      avatar_url: string | null;
-      is_admin: boolean;
+      avatarUrl: string | null;
+      isAdmin: boolean;
     };
   }
 }

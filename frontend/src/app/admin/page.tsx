@@ -70,7 +70,8 @@ export default function AdminPage() {
         setQueueData(queueRes.data as unknown as QueueOverview);
       }
       if (rateRes.data) {
-        setRateLimits(rateRes.data as unknown as RateLimitStatus);
+        const raw = rateRes.data as unknown as { rateLimits: RateLimitStatus } | RateLimitStatus;
+        setRateLimits("rateLimits" in raw ? raw.rateLimits : raw);
       }
     } catch {
       // API error
