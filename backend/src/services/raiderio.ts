@@ -1,6 +1,8 @@
 // ─── Raider.IO API Client ──────────────────────────────────────────────
 import { rateLimitManager } from "./rate-limiter";
+import { log as rootLog } from "../lib/logger";
 
+const log = rootLog.child({ module: "raiderio" });
 const RAIDERIO_BASE = "https://raider.io/api/v1";
 const RAIDERIO_API_KEY = process.env.RAIDERIO_API_KEY ?? "";
 const API_DELAY_MS = RAIDERIO_API_KEY ? 100 : 200; // authenticated clients can be faster
@@ -20,13 +22,20 @@ async function raiderioFetch(url: string): Promise<any> {
   rateLimitManager.trackRequest("raiderio");
   await sleep(API_DELAY_MS);
 
-  const response = await fetch(withApiKey(url));
+  const fullUrl = withApiKey(url);
+  log.debug({ url: fullUrl }, "Raider.IO API request");
+  const response = await fetch(fullUrl);
 
   if (!response.ok) {
-    if (response.status === 400 || response.status === 404) return null;
+    if (response.status === 400 || response.status === 404) {
+      log.debug({ url: fullUrl, status: response.status }, "Raider.IO API: resource not found");
+      return null;
+    }
+    log.error({ url: fullUrl, status: response.status }, "Raider.IO API error");
     throw new Error(`Raider.IO API error: ${response.status} ${url}`);
   }
 
+  log.debug({ url: fullUrl, status: response.status }, "Raider.IO API success");
   return response.json();
 }
 

@@ -1,5 +1,8 @@
 // ─── Blizzard API Client ───────────────────────────────────────────────
 import { rateLimitManager } from "./rate-limiter";
+import { log as rootLog } from "../lib/logger";
+
+const log = rootLog.child({ module: "blizzard" });
 
 const BLIZZARD_CLIENT_ID = process.env.BLIZZARD_CLIENT_ID ?? "";
 const BLIZZARD_CLIENT_SECRET = process.env.BLIZZARD_CLIENT_SECRET ?? "";
@@ -17,6 +20,7 @@ async function getAccessToken(): Promise<string> {
     return accessToken;
   }
 
+  log.debug("Fetching new Blizzard API access token");
   const response = await fetch("https://oauth.battle.net/token", {
     method: "POST",
     headers: {
@@ -27,12 +31,14 @@ async function getAccessToken(): Promise<string> {
   });
 
   if (!response.ok) {
+    log.error({ status: response.status }, "Blizzard auth failed");
     throw new Error(`Blizzard auth failed: ${response.status}`);
   }
 
   const data = await response.json();
   accessToken = data.access_token;
   tokenExpiresAt = Date.now() + data.expires_in * 1000;
+  log.debug({ expiresIn: data.expires_in }, "Blizzard API token obtained");
   return accessToken!;
 }
 
@@ -41,15 +47,21 @@ async function blizzardFetch(url: string): Promise<any> {
   rateLimitManager.trackRequest("blizzard");
   await sleep(API_DELAY_MS);
 
+  log.debug({ url }, "Blizzard API request");
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!response.ok) {
-    if (response.status === 404) return null;
+    if (response.status === 404) {
+      log.debug({ url, status: 404 }, "Blizzard API: resource not found");
+      return null;
+    }
+    log.error({ url, status: response.status }, "Blizzard API error");
     throw new Error(`Blizzard API error: ${response.status} ${url}`);
   }
 
+  log.debug({ url, status: response.status }, "Blizzard API success");
   return response.json();
 }
 
@@ -137,28 +149,34 @@ export function getAchievementType(achievementId: number): "cutting_edge" | "ahe
 
 // ─── User Character List (requires user OAuth token) ───────────────────
 export interface BlizzardWowCharacter {
-  character: {
-    id: number;
-    name: string;
-    realm: { slug: string; name: string };
-  };
-  faction: { type: string };
-  playable_class: { name: string };
+  id: number;
+  name: string;
+  realm: { slug: string; name: string; id: number; key: { href: string } };
+  faction: { type: string; name: string };
+  playable_class: { name: string; id: number; key: { href: string } };
+  playable_race: { name: string; id: number; key: { href: string } };
+  gender: { type: string; name: string };
   level: number;
+  character: { href: string };
+  protected_character: { href: string };
 }
 
 export async function fetchUserCharacters(userAccessToken: string, region: string = "eu"): Promise<BlizzardWowCharacter[]> {
   await sleep(API_DELAY_MS);
 
   const url = `https://${region}.api.blizzard.com/profile/user/wow?namespace=profile-${region}&locale=en_US`;
+  log.debug({ url }, "Fetching user WoW characters");
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${userAccessToken}` },
   });
 
   if (!response.ok) {
+    log.error({ status: response.status }, "Failed to fetch user characters");
     throw new Error(`Failed to fetch user characters: ${response.status}`);
   }
 
   const data = await response.json();
-  return data.wow_accounts?.flatMap((account: any) => account.characters ?? []) ?? [];
+  const characters = data.wow_accounts?.flatMap((account: any) => account.characters ?? []) ?? [];
+  log.info({ count: characters.length, accounts: data.wow_accounts?.length ?? 0 }, "Fetched user WoW characters");
+  return characters;
 }

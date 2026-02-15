@@ -71,14 +71,14 @@ const TRACKED_ENCOUNTERS = [
 const lightweightWorker = new Worker(
   "lightweight-scan",
   async (job: Job) => {
-    const { characterId, name, realmSlug, region } = job.data as {
+    const { characterId, characterName, realmSlug, region } = job.data as {
       characterId: string;
-      name: string;
+      characterName: string;
       realmSlug: string;
       region: string;
     };
 
-    log.info({ characterId, name, realmSlug }, "Lightweight scan started");
+    log.info({ characterId, characterName, realmSlug }, "Lightweight scan started");
 
     try {
       // Update status
@@ -86,10 +86,10 @@ const lightweightWorker = new Worker(
 
       await db.update(characterQueue).set({ status: "processing" }).where(eq(characterQueue.characterId, characterId));
 
-      // ── Step 1: Blizzard Profile ───────────────────────────────────
+      // ── Step 1: Blizzard Profile ───────────────────────────────
       await updateStep(characterId, "Fetching Blizzard profile");
-      const blizzProfile = await fetchCharacterProfile(realmSlug, name, region);
-      const blizzMedia = await fetchCharacterMedia(realmSlug, name, region);
+      const blizzProfile = await fetchCharacterProfile(realmSlug, characterName, region);
+      const blizzMedia = await fetchCharacterMedia(realmSlug, characterName, region);
 
       if (blizzProfile) {
         const profilePicUrl = blizzMedia?.assets?.find((a) => a.key === "avatar")?.value ?? blizzMedia?.avatar_url ?? null;
@@ -112,7 +112,7 @@ const lightweightWorker = new Worker(
 
       // ── Step 2: Blizzard Achievements ──────────────────────────────
       await updateStep(characterId, "Fetching achievements");
-      const achievements = await fetchCharacterAchievements(realmSlug, name, region);
+      const achievements = await fetchCharacterAchievements(realmSlug, characterName, region);
 
       for (const achievement of achievements) {
         const type = getAchievementType(achievement.achievement.id);
@@ -142,7 +142,7 @@ const lightweightWorker = new Worker(
         }
 
         const rankings = await fetchEncounterRankings(
-          name,
+          characterName,
           realmSlug,
           region,
           encounterId,
@@ -177,7 +177,7 @@ const lightweightWorker = new Worker(
       // ── Step 4: Raider.IO ──────────────────────────────────────────
       await updateStep(characterId, "Fetching Raider.IO data");
 
-      const rioData = await fetchRaiderioCharacter(name, realmSlug, region);
+      const rioData = await fetchRaiderioCharacter(characterName, realmSlug, region);
 
       if (rioData) {
         // Store M+ scores
@@ -240,17 +240,17 @@ const lightweightWorker = new Worker(
 
       await db.update(characterQueue).set({ status: "completed" }).where(eq(characterQueue.characterId, characterId));
 
-      log.info({ name, realmSlug }, "Lightweight scan completed");
+      log.info({ characterName, realmSlug }, "Lightweight scan completed");
 
       // Queue deep scan
       await deepScanQueue.add("deep-scan", {
         characterId,
-        name,
+        characterName,
         realmSlug,
         region,
       });
     } catch (error) {
-      log.error({ err: error, name, realmSlug }, "Lightweight scan failed");
+      log.error({ err: error, characterName, realmSlug }, "Lightweight scan failed");
 
       await db
         .update(processingState)
@@ -282,14 +282,14 @@ const lightweightWorker = new Worker(
 const deepScanWorker = new Worker(
   "deep-scan",
   async (job: Job) => {
-    const { characterId, name, realmSlug, region } = job.data as {
+    const { characterId, characterName, realmSlug, region } = job.data as {
       characterId: string;
-      name: string;
+      characterName: string;
       realmSlug: string;
       region: string;
     };
 
-    log.info({ characterId, name, realmSlug }, "Deep scan started");
+    log.info({ characterId, characterName, realmSlug }, "Deep scan started");
 
     try {
       await db
@@ -320,9 +320,9 @@ const deepScanWorker = new Worker(
       // Regenerate AI summary with richer data
       await generateAiSummary(characterId);
 
-      log.info({ name, realmSlug }, "Deep scan completed");
+      log.info({ characterName, realmSlug }, "Deep scan completed");
     } catch (error) {
-      log.error({ err: error, name, realmSlug }, "Deep scan failed");
+      log.error({ err: error, characterName, realmSlug }, "Deep scan failed");
 
       await db
         .update(processingState)
@@ -358,21 +358,21 @@ rateLimitManager.registerPauseResume(
 export async function addToLightweightQueue(characterId: string, name: string, realmSlug: string, region: string) {
   await lightweightQueue.add("lightweight-scan", {
     characterId,
-    name,
+    characterName: name,
     realmSlug,
     region,
   });
-  log.info({ name, realmSlug }, "Added to lightweight queue");
+  log.info({ characterName: name, realmSlug }, "Added to lightweight queue");
 }
 
 export async function addToDeepScanQueue(characterId: string, name: string, realmSlug: string, region: string) {
   await deepScanQueue.add("deep-scan", {
     characterId,
-    name,
+    characterName: name,
     realmSlug,
     region,
   });
-  log.info({ name, realmSlug }, "Added to deep-scan queue");
+  log.info({ characterName: name, realmSlug }, "Added to deep-scan queue");
 }
 
 export function getQueues() {

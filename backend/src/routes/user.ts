@@ -43,20 +43,28 @@ export const userRoutes = new Elysia({ prefix: "/api/user" })
     try {
       const wowCharacters = await fetchUserCharacters(token);
 
-      // Filter to level 70+ characters
+      // Filter to level 70+ characters with valid data
       const filtered = wowCharacters
-        .filter((c) => c.level >= 70)
+        .filter((c) => {
+          // Ensure character has all required properties
+          if (!c.realm || !c.faction || !c.playable_class || !c.name) {
+            log.warn({ character: c }, "Skipping character with missing data");
+            return false;
+          }
+          return c.level >= 70;
+        })
         .map((c) => ({
-          id: c.character.id,
-          name: c.character.name,
-          realm: c.character.realm.name,
-          realmSlug: c.character.realm.slug,
+          id: c.id,
+          name: c.name,
+          realm: c.realm.name,
+          realmSlug: c.realm.slug,
           faction: c.faction.type.toLowerCase(),
           className: c.playable_class.name,
           level: c.level,
         }))
         .sort((a, b) => b.level - a.level);
 
+      log.info({ count: filtered.length, total: wowCharacters.length }, "Filtered user characters");
       return { characters: filtered, linked: true };
     } catch (error) {
       log.error({ err: error }, "Failed to fetch Bnet characters");
