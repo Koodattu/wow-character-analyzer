@@ -1,13 +1,68 @@
-# Project Blueprint: Bun + Elysia + Eden + Next.js
+# WoW Character Analyzer — Technical Documentation
 
-## Stack Overview
+## Overview
 
-| Layer                     | Technology                | Role                                                                    |
-| ------------------------- | ------------------------- | ----------------------------------------------------------------------- |
-| Runtime & Package Manager | **Bun**                   | Replaces Node.js + npm. Runs `.ts` natively.                            |
-| Backend                   | **Elysia**                | Bun-native HTTP framework. Uses TypeBox for schema validation.          |
-| Type Bridge               | **Eden Treaty**           | Type-safe client generated from Elysia's app type. No manual API types. |
-| Frontend                  | **Next.js 16 + React 19** | App Router, Server Components, Tailwind CSS v4.                         |
+WoW Character Analyzer is a full-stack TypeScript application for analyzing World of Warcraft characters. It is built on a modern, performance-oriented stack: **Bun** runtime, **Elysia** HTTP framework, **PostgreSQL** with **Drizzle ORM**, **Next.js 16**, **React 19**, and **Tailwind CSS v4**. End-to-end type safety is achieved via **Eden Treaty**, which generates a fully typed API client directly from the Elysia backend — no manual API types, no code generation step.
+
+---
+
+## Technology Stack
+
+| Layer               | Technology                      | Version | Purpose                                                          |
+| ------------------- | ------------------------------- | ------- | ---------------------------------------------------------------- |
+| Runtime & Toolchain | **Bun**                         | latest  | TypeScript-native runtime, bundler, test runner, package manager |
+| Backend Framework   | **Elysia**                      | 1.4.x   | Bun-native HTTP framework with TypeBox schema validation         |
+| Database            | **PostgreSQL**                  | —       | Primary relational data store                                    |
+| ORM                 | **Drizzle ORM**                 | 0.45.x  | Type-safe, SQL-like ORM with zero-overhead query building        |
+| Schema Bridge       | **drizzle-typebox**             | 0.3.x   | Generates TypeBox schemas from Drizzle table definitions         |
+| Migrations          | **Drizzle Kit**                 | 0.31.x  | Schema migrations and introspection                              |
+| Authentication      | **Lucia**                       | 3.2.x   | Modern, session-based auth library                               |
+| Auth DB Adapter     | **@lucia-auth/adapter-drizzle** | 1.1.x   | Lucia adapter for Drizzle ORM                                    |
+| ID Generation       | **@paralleldrive/cuid2**        | 3.3.x   | Collision-resistant, URL-safe unique IDs                         |
+| API Docs            | **@elysiajs/swagger**           | 1.3.x   | Auto-generated OpenAPI/Swagger docs from Elysia schemas          |
+| Type Bridge         | **Eden Treaty**                 | 1.4.x   | Type-safe RPC client generated from Elysia's exported app type   |
+| Frontend Framework  | **Next.js**                     | 16.1.x  | App Router, Server Components, streaming SSR                     |
+| UI Library          | **React**                       | 19.2.x  | Concurrent rendering, Server Components                          |
+| CSS Framework       | **Tailwind CSS**                | 4.x     | Utility-first CSS via PostCSS plugin                             |
+| Icons               | **Lucide React**                | 0.564.x | Consistent, tree-shakeable SVG icon set                          |
+| Utility: classnames | **clsx** + **tailwind-merge**   | latest  | Conditional class composition with Tailwind conflict resolution  |
+| Schema Validation   | **TypeBox (@sinclair/typebox)** | 0.34.x  | JSON Schema-compatible type validation (shared backend/frontend) |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                        Client                           │
+│  Next.js 16 (App Router) + React 19 + Tailwind CSS v4  │
+│  Eden Treaty client ← type-inferred from backend        │
+│  Port 3000                                              │
+└──────────────────────┬──────────────────────────────────┘
+                       │ HTTP (typed via Eden)
+┌──────────────────────▼──────────────────────────────────┐
+│                       Backend                           │
+│  Bun runtime + Elysia framework                         │
+│  TypeBox validation · Swagger docs · CORS               │
+│  Lucia auth · Drizzle ORM                               │
+│  Port 3001                                              │
+└──────────────────────┬──────────────────────────────────┘
+                       │ SQL (via Drizzle)
+┌──────────────────────▼──────────────────────────────────┐
+│                     PostgreSQL                          │
+│  Relational data store                                  │
+│  Managed via Drizzle Kit migrations                     │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Key Architectural Decisions
+
+- **Monorepo with independent packages.** `backend/` and `frontend/` each have their own `package.json` and `tsconfig.json`. No workspace orchestrator — just two Bun projects side by side.
+- **End-to-end type safety without codegen.** The backend exports `type App = typeof app`. The frontend imports this type and passes it to Eden Treaty. Route paths, request bodies, query params, and response shapes are all inferred at compile time.
+- **Drizzle + TypeBox bridge.** `drizzle-typebox` generates TypeBox schemas from Drizzle table definitions, which Elysia uses directly for request validation. One source of truth: database schema → validation → API types → client types.
+- **Session-based auth via Lucia.** Lucia v3 with the Drizzle adapter handles session management. No JWTs — sessions are stored server-side in PostgreSQL.
+
+---
 
 ## Project Structure
 
@@ -15,160 +70,167 @@
 /wow-character-analyzer
 ├── backend/
 │   ├── src/
-│   │   └── index.ts          # Elysia app entry + `export type App`
-│   └── package.json
+│   │   └── index.ts              # Elysia entry point, exports `type App`
+│   ├── package.json
+│   └── tsconfig.json
 ├── frontend/
 │   ├── src/
-│   │   ├── app/              # Next.js App Router (layout, page, globals.css)
+│   │   ├── app/                  # Next.js App Router
+│   │   │   ├── layout.tsx        # Root layout (Geist font, Tailwind)
+│   │   │   ├── page.tsx          # Home page
+│   │   │   └── globals.css       # Tailwind v4 entry (@import "tailwindcss")
 │   │   └── lib/
-│   │       └── api.ts        # Eden Treaty client (create this)
-│   └── package.json
+│   │       └── api.ts            # Eden Treaty client
+│   ├── public/                   # Static assets
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── next.config.ts
+│   ├── postcss.config.mjs        # Tailwind via @tailwindcss/postcss
+│   └── eslint.config.mjs
 ├── docs/
-│   └── README.md             # This file
-└── package.json              # Root (holds shared deps like @elysiajs/eden)
+│   └── README.md                 # This file
+├── LICENSE
+└── README.md
 ```
 
-## Setup & Commands
+---
+
+## Performance & Optimization Rationale
+
+### Why Bun
+
+Bun replaces Node.js, npm, and ts-node in a single binary. It executes TypeScript natively without a transpilation step. Key performance advantages:
+
+- **Startup time:** ~4x faster than Node.js for TypeScript files.
+- **Package installation:** Bun's package manager is significantly faster than npm/yarn/pnpm due to hardlink-based caching and native resolution.
+- **Built-in test runner:** `bun:test` is Jest-compatible without the overhead of additional tooling.
+- **Built-in bundler and transpiler:** Eliminates the need for separate build tooling like esbuild or swc for backend code.
+
+### Why Elysia
+
+Elysia is purpose-built for Bun. It achieves high throughput by leveraging Bun's native HTTP server and avoids the overhead patterns common in Express/Fastify:
+
+- **Compile-time type inference:** Route schemas defined with TypeBox are inferred at compile time, enabling end-to-end type safety through Eden without runtime reflection.
+- **Method chaining for type propagation:** Elysia's chained API preserves full type information across the entire route tree.
+- **Built-in validation:** TypeBox schemas validate request bodies, query params, and path params with zero additional dependencies.
+- **Plugin architecture:** Routes are composed as Elysia plugin instances with prefixes, enabling modular code without losing type safety.
+
+### Why PostgreSQL + Drizzle ORM
+
+- **PostgreSQL:** Battle-tested relational database. Ideal for structured data like character profiles, gear sets, and analysis results where relationships and query flexibility matter.
+- **Drizzle ORM:** SQL-like API with zero overhead. Unlike Prisma, Drizzle does not use a query engine binary — it generates SQL strings and sends them directly to the database driver. This results in faster queries and a smaller deployment footprint.
+- **Drizzle Kit:** Handles schema migrations with `generate`, `migrate`, `push`, and `introspect` commands. No separate migration tool needed.
+
+### Why Next.js 16 + React 19
+
+- **React Server Components:** Data fetching happens on the server by default. Components that don't need interactivity never ship JavaScript to the client, reducing bundle size.
+- **Streaming SSR:** Next.js 16 streams HTML as Server Components resolve, improving Time to First Byte (TTFB).
+- **React 19 concurrent features:** Transitions, Suspense boundaries, and the `use` hook enable progressive rendering without blocking the UI.
+- **App Router:** File-system routing with nested layouts, loading states, and error boundaries built into the folder structure.
+
+### Why Tailwind CSS v4
+
+- **Engine rewrite:** Tailwind v4 uses a new Rust-based engine (Oxide) that is significantly faster at scanning and generating utilities.
+- **PostCSS plugin:** Configured via `@tailwindcss/postcss` — no `tailwind.config.js` needed for basic usage. Configuration moves into CSS with `@theme`.
+- **Zero-runtime:** All styles are generated at build time. No CSS-in-JS runtime overhead.
+
+---
+
+## Type Safety Pipeline
+
+The type safety chain flows from database schema to the browser with zero manual type definitions:
+
+```
+Drizzle Table Schema
+        │
+        ▼
+  drizzle-typebox  ──►  TypeBox Schemas (t.Object, t.String, etc.)
+        │
+        ▼
+  Elysia Route Validation  ──►  `export type App = typeof app`
+        │
+        ▼
+  Eden Treaty Client  ──►  Fully typed `api.route.method()` calls
+        │
+        ▼
+  React Components  ──►  Type-safe props and responses
+```
+
+This means:
+
+- Adding a column to a Drizzle table automatically surfaces as a new field in API responses and the frontend — with compile-time errors if anything is mismatched.
+- Renaming a field in the schema immediately shows type errors everywhere it was used.
+- No `.d.ts` files, no GraphQL codegen, no manual `interface` definitions for API shapes.
+
+---
+
+## Authentication
+
+**Lucia v3** handles session-based authentication:
+
+- Sessions are stored in PostgreSQL via `@lucia-auth/adapter-drizzle`.
+- Session tokens are managed as HTTP-only cookies.
+- `@paralleldrive/cuid2` generates collision-resistant IDs for users and sessions.
+- No JWTs — session validation is a database lookup, ensuring immediate revocation capability.
+
+---
+
+## API Documentation
+
+**@elysiajs/swagger** auto-generates OpenAPI documentation from Elysia's TypeBox schemas. Available at `/swagger` in development. Every route with a schema definition is automatically documented with request/response types.
+
+---
+
+## Development
+
+### Prerequisites
+
+- **Bun** (latest) — [bun.sh](https://bun.sh)
+- **PostgreSQL** — local instance or containerized
+- **Node.js** is NOT required
+
+### Commands
 
 All commands use `bun`. Never use `npm` or `npx`.
 
 ```bash
-# Install all dependencies (run from root)
+# Install dependencies
 cd backend && bun install
 cd ../frontend && bun install
 
 # Start backend (port 3001, watch mode)
 cd backend
-bun dev                        # runs: bun run --watch src/index.ts
+bun dev                        # bun run --watch src/index.ts
 
 # Start frontend (port 3000)
 cd frontend
-bun dev                        # runs: next dev
+bun dev                        # next dev
+
+# Database migrations
+cd backend
+bunx drizzle-kit generate      # generate migration from schema changes
+bunx drizzle-kit migrate       # apply pending migrations
+bunx drizzle-kit push          # push schema directly (dev only)
+bunx drizzle-kit studio        # open Drizzle Studio GUI
 
 # Type check
 cd backend && bun tsc --noEmit
 cd frontend && bun tsc --noEmit
 
-# Run tests (bun:test is built-in)
+# Tests
 cd backend && bun test
+bun test --watch               # watch mode
+bun test --coverage            # with coverage
 
-# Add a dependency
-cd backend && bun add <package>
-cd frontend && bun add <package>
+# Linting
+cd frontend && bun lint
 ```
 
-## Backend: Elysia
+---
 
-### Key Rules
+## Eden Treaty: End-to-End Typed API Client
 
-1. **Always chain methods.** Elysia's type inference only works through method chaining. Calling methods on a stored variable loses type information.
-2. **Always validate with `t`.** Use `t.Object()`, `t.String()`, `t.Number()` etc. from `elysia` for `body`, `query`, and `params`. This drives Eden's type inference.
-3. **Always export the app type.** The last line of the main backend file must be: `export type App = typeof app;`
-
-### Current Entry Point: `backend/src/index.ts`
-
-```typescript
-import { Elysia, t } from "elysia";
-import { cors } from "@elysiajs/cors";
-
-const app = new Elysia()
-  .use(cors())
-  .get("/", () => ({ message: "Hello from Bun + Elysia!" }))
-  .post(
-    "/user",
-    ({ body }) => ({
-      id: 1,
-      name: body.name,
-      status: "created",
-    }),
-    {
-      body: t.Object({
-        name: t.String(),
-      }),
-    },
-  )
-  .listen(3001);
-
-console.log(`Elysia is running at ${app.server?.hostname}:${app.server?.port}`);
-
-export type App = typeof app;
-```
-
-### Modular Routes with Plugins
-
-Split routes into separate files using Elysia plugin instances with prefixes:
-
-```typescript
-// backend/src/routes/users.ts
-import { Elysia, t } from "elysia";
-
-export const userRoutes = new Elysia({ prefix: "/users" })
-  .get("/", () => db.users.findAll())
-  .get("/:id", ({ params: { id } }) => db.users.findById(id), {
-    params: t.Object({ id: t.String() }),
-  })
-  .post("/", ({ body }) => db.users.create(body), {
-    body: t.Object({
-      name: t.String(),
-      email: t.String(),
-    }),
-  });
-```
-
-```typescript
-// backend/src/index.ts
-import { Elysia } from "elysia";
-import { cors } from "@elysiajs/cors";
-import { userRoutes } from "./routes/users";
-
-const app = new Elysia().use(cors()).use(userRoutes).listen(3001);
-
-export type App = typeof app;
-```
-
-### CORS Configuration
-
-```typescript
-import { cors } from "@elysiajs/cors";
-
-.use(
-  cors({
-    origin: "http://localhost:3000",       // frontend URL
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-)
-```
-
-### Error Handling
-
-```typescript
-import { Elysia } from "elysia";
-
-const app = new Elysia()
-  .onError(({ error, code }) => {
-    if (code === "VALIDATION") {
-      return { error: "Validation failed", details: error.message };
-    }
-    return { error: "Internal server error" };
-  })
-  .get("/", () => "ok");
-```
-
-### Route-Level Guards (Lifecycle Hooks)
-
-```typescript
-.get("/admin", ({ cookie }) => getAdminData(), {
-  beforeHandle({ cookie, error }) {
-    if (!isAuthenticated(cookie)) throw error(401);
-  },
-})
-```
-
-## Eden Treaty: The Type Bridge
-
-Eden Treaty creates a fully typed client from the Elysia app type. It maps routes to object paths and HTTP methods to function calls.
+Eden Treaty creates a fully typed RPC client from the Elysia app type. Routes map to object paths, HTTP methods map to function calls.
 
 ### Setup
 
@@ -183,23 +245,17 @@ export const api = treaty<App>("http://localhost:3001");
 ### Usage
 
 ```typescript
-// GET request - fully typed response
+// GET — fully typed response
 const { data, error } = await api.index.get();
-// data type: { message: string }
 
-// POST with typed body - autocomplete on body fields
-const { data, error } = await api.user.post({
-  name: "Alice",
-});
-// data type: { id: number, name: string, status: string }
+// POST — typed body, typed response
+const { data, error } = await api.user.post({ name: "Alice" });
 
 // Dynamic route params
 const { data } = await api.users["123"].get();
 
 // Query parameters
-const { data } = await api.search.get({
-  query: { q: "term", page: 1 },
-});
+const { data } = await api.search.get({ query: { q: "term", page: 1 } });
 ```
 
 ### Error Handling
@@ -223,148 +279,109 @@ if (error) {
 }
 ```
 
-### Configuration (Auth Headers, etc.)
+---
 
-```typescript
-const api = treaty<App>("http://localhost:3001", {
-  headers: {
-    Authorization: "Bearer <token>",
-  },
-  fetch: {
-    credentials: "include",
-  },
-  onResponse: async (response) => {
-    if (response.status === 401) {
-      // handle token refresh
-    }
-  },
-});
-```
-
-### Testing Without HTTP (Direct Instance)
-
-```typescript
-import { treaty } from "@elysiajs/eden";
-import { describe, it, expect } from "bun:test";
-
-describe("API", () => {
-  it("returns greeting", async () => {
-    const app = createApp(); // factory that returns Elysia instance
-    const client = treaty<typeof app>(app); // pass instance directly, no HTTP
-
-    const { data, error } = await client.index.get();
-    expect(error).toBeNull();
-    expect(data?.message).toBe("Hello from Bun + Elysia!");
-  });
-});
-```
-
-## Frontend: Next.js 16 + React 19
-
-### App Router Conventions
-
-| File            | Purpose                                              |
-| --------------- | ---------------------------------------------------- |
-| `layout.tsx`    | Shared UI wrapper. Does not re-render on navigation. |
-| `page.tsx`      | Route entry point. Unique per URL segment.           |
-| `loading.tsx`   | Suspense fallback shown while page loads.            |
-| `error.tsx`     | Error boundary for the route segment.                |
-| `not-found.tsx` | 404 page for the route segment.                      |
+## Frontend Patterns
 
 ### Server Components (Default)
 
-All components in the `app/` directory are Server Components by default. They can be `async` and fetch data directly:
+All `app/` components are Server Components by default. They can be `async`, fetch data on the server, and ship zero JavaScript to the client:
 
 ```tsx
-// frontend/src/app/page.tsx
 import { api } from "@/lib/api";
 
-export default async function Home() {
-  const { data } = await api.index.get();
-
-  return (
-    <main>
-      <h1>{data?.message}</h1>
-    </main>
-  );
+export default async function CharacterPage() {
+  const { data } = await api.characters["some-id"].get();
+  return <h1>{data?.name}</h1>;
 }
 ```
 
 ### Client Components
 
-Add `"use client"` at the top of files that need interactivity (state, effects, event handlers):
+Add `"use client"` only when the component needs state, effects, or browser APIs:
 
 ```tsx
 "use client";
-
 import { useState } from "react";
-import { api } from "@/lib/api";
 
-export function CreateUserForm() {
-  const [name, setName] = useState("");
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const { data, error } = await api.user.post({ name });
-    if (error) {
-      console.error(error.value);
-      return;
-    }
-    console.log("Created:", data);
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <input value={name} onChange={(e) => setName(e.target.value)} />
-      <button type="submit">Create</button>
-    </form>
-  );
+export function SearchBar() {
+  const [query, setQuery] = useState("");
+  // ...
 }
-```
-
-### Path Aliases
-
-The frontend uses `@/*` mapped to `./src/*` (configured in `tsconfig.json`):
-
-```typescript
-import { api } from "@/lib/api"; // resolves to frontend/src/lib/api.ts
 ```
 
 ### Styling
 
-Tailwind CSS v4 via PostCSS. Entry point: `src/app/globals.css` with `@import "tailwindcss"`.
+- Tailwind CSS v4 via `@tailwindcss/postcss` plugin.
+- `clsx` + `tailwind-merge` for conditional class composition without Tailwind conflicts.
+- `lucide-react` for consistent, tree-shakeable SVG icons.
+- Geist and Geist Mono fonts loaded via `next/font/google`.
 
-## Testing with bun:test
+### Path Aliases
+
+`@/*` maps to `./src/*` in the frontend `tsconfig.json`:
 
 ```typescript
-import { describe, it, expect, beforeAll, afterEach, mock } from "bun:test";
-
-describe("feature", () => {
-  it("works", () => {
-    expect(1 + 1).toBe(2);
-  });
-
-  it("async works", async () => {
-    const result = await someAsyncFn();
-    expect(result).toEqual({ ok: true });
-  });
-});
+import { api } from "@/lib/api"; // → frontend/src/lib/api.ts
 ```
 
-```bash
-bun test                  # run all tests
-bun test --watch          # re-run on file change
-bun test --coverage       # with coverage report
-bun test -t "pattern"     # filter by test name
+---
+
+## Backend Patterns
+
+### Route Definition
+
+Always chain methods on the Elysia instance. Always validate with TypeBox schemas:
+
+```typescript
+const app = new Elysia()
+  .use(cors())
+  .get("/characters/:id", ({ params }) => getCharacter(params.id), {
+    params: t.Object({ id: t.String() }),
+  })
+  .post("/characters", ({ body }) => createCharacter(body), {
+    body: t.Object({
+      name: t.String(),
+      realm: t.String(),
+      region: t.String(),
+    }),
+  })
+  .listen(3001);
+
+export type App = typeof app;
 ```
 
-## AI Code Generation Rules
+### Modular Routes
 
-When generating code for this project:
+Use Elysia plugin instances with prefixes to organize routes:
 
-1. **Backend routes:** Always chain on the Elysia instance. Always include a `t.Object()` validation schema for `body`, `query`, and `params`.
-2. **Frontend data fetching:** Always use the `api` treaty client from `@/lib/api`. Never use raw `fetch` with string URLs for backend calls.
-3. **Type safety:** Never write manual TypeScript interfaces for API request/response shapes. Eden infers them from the backend.
-4. **Imports:** Use `@/` path alias in frontend code. Use relative paths in backend code.
-5. **Runtime:** Use `bun` for all commands. Use `bun:test` for testing. Use `bun run --watch` for development.
-6. **Components:** Default to Server Components. Only add `"use client"` when the component needs state, effects, or browser APIs.
+```typescript
+// backend/src/routes/characters.ts
+export const characterRoutes = new Elysia({ prefix: "/characters" })
+  .get("/", () => listCharacters())
+  .get("/:id", ({ params }) => getCharacter(params.id), {
+    params: t.Object({ id: t.String() }),
+  });
+```
+
+```typescript
+// backend/src/index.ts
+const app = new Elysia().use(cors()).use(characterRoutes).listen(3001);
+
+export type App = typeof app;
+```
+
+---
+
+## Code Generation Rules
+
+When generating or modifying code in this project:
+
+1. **Runtime:** Always use `bun`. Never `npm`, `npx`, or `node`.
+2. **Backend routes:** Always chain on the Elysia instance. Always include TypeBox validation schemas.
+3. **API calls:** Always use the Eden Treaty client from `@/lib/api`. Never use raw `fetch`.
+4. **Types:** Never manually define API request/response interfaces. Eden infers them.
+5. **Imports:** Use `@/` alias in frontend. Use relative paths in backend.
+6. **Components:** Default to Server Components. Only add `"use client"` when required.
+7. **IDs:** Use `cuid2` for all generated identifiers.
+8. **Database:** Define schemas with Drizzle. Use `drizzle-typebox` to bridge to Elysia validation.
