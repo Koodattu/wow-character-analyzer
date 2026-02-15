@@ -20,6 +20,10 @@ COPY --from=install /temp/prod/node_modules node_modules
 COPY package.json .
 COPY src src
 
+# Create data directory for BunQueue SQLite persistence
+# Must exist and be writable before switching to non-root user
+RUN mkdir -p /app/data && chown bun:bun /app/data
+
 # Run as non-root user (built into oven/bun images)
 USER bun
 

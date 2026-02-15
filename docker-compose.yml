@@ -29,7 +29,7 @@ services:
     networks:
       - app-network
 
-  # ── Backend (Bun + Elysia) ─────────────────────────────
+  # ── Backend (Bun + Elysia + BunQueue) ──────────────────
   backend:
     build:
       context: ./backend
@@ -42,10 +42,12 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       PORT: "3001"
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+    volumes:
+      - bunqueue-data:/app/data
     deploy:
       resources:
         limits:
-          memory: 192M
+          memory: 242M
     healthcheck:
       test:
         ["CMD-SHELL", "wget --spider --quiet http://localhost:3001/ || exit 1"]
@@ -79,6 +81,7 @@ services:
 
 volumes:
   pgdata:
+  bunqueue-data:
 
 networks:
   app-network:
