@@ -127,6 +127,12 @@ async function findOrCreateUser(
         })
         .where(eq(oauthAccounts.id, existingAccount.id));
 
+      // Recalculate admin status on re-link
+      if (provider === "discord") {
+        const shouldBeAdmin = ADMIN_DISCORD_IDS.includes(providerAccountId);
+        await db.update(users).set({ isAdmin: shouldBeAdmin }).where(eq(users.id, currentUserId));
+      }
+
       return currentUserId;
     }
 
@@ -142,14 +148,17 @@ async function findOrCreateUser(
       })
       .where(eq(oauthAccounts.id, existingAccount.id));
 
+    // Recalculate admin status on every Discord login
+    const updateFields: Record<string, unknown> = {
+      username: username ?? undefined,
+      avatarUrl: avatarUrl ?? undefined,
+    };
+    if (provider === "discord") {
+      updateFields.isAdmin = ADMIN_DISCORD_IDS.includes(providerAccountId);
+    }
+
     // Update user info
-    await db
-      .update(users)
-      .set({
-        username: username ?? undefined,
-        avatarUrl: avatarUrl ?? undefined,
-      })
-      .where(eq(users.id, userId));
+    await db.update(users).set(updateFields).where(eq(users.id, userId));
 
     return userId;
   }
@@ -427,10 +436,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     }
 
     // Count how many providers the user has linked
-    const allAccounts = await db
-      .select()
-      .from(oauthAccounts)
-      .where(eq(oauthAccounts.userId, user.id));
+    const allAccounts = await db.select().from(oauthAccounts).where(eq(oauthAccounts.userId, user.id));
 
     if (allAccounts.length <= 1) {
       set.status = 400;
