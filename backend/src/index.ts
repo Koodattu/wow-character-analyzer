@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { swagger } from "@elysiajs/swagger";
+import { runMigrations } from "./db/migrate";
 import { authRoutes } from "./auth/routes";
 import { characterRoutes } from "./routes/characters";
 import { userRoutes } from "./routes/user";
@@ -8,6 +9,13 @@ import { adminRoutes } from "./routes/admin";
 
 // Import queue module to start workers (side-effect)
 import "./queue";
+
+// ── Run migrations & seed before starting the server ─────
+await runMigrations();
+
+// Seed is idempotent (onConflictDoNothing) — safe to run every startup
+const { seed } = await import("./db/seed");
+await seed();
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "http://localhost:3000";
 const PORT = parseInt(process.env.PORT ?? "3001", 10);

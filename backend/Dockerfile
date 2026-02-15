@@ -19,6 +19,7 @@ FROM base AS release
 COPY --from=install /temp/prod/node_modules node_modules
 COPY package.json .
 COPY src src
+COPY drizzle drizzle
 
 # Create data directory for BunQueue SQLite persistence
 # Must exist and be writable before switching to non-root user

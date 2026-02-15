@@ -158,7 +158,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   .use(authPlugin)
 
   // ── Discord OAuth2 ──────────────────────────────────────────────────
-  .get("/discord", ({ cookie, set }) => {
+  .get("/discord", ({ cookie, redirect }) => {
     const state = generateState();
 
     cookie.oauth_state.set({
@@ -178,10 +178,10 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       state,
     });
 
-    set.redirect = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
+    return redirect(`https://discord.com/api/oauth2/authorize?${params.toString()}`);
   })
 
-  .get("/discord/callback", async ({ query, cookie, set }) => {
+  .get("/discord/callback", async ({ query, cookie, set, redirect }) => {
     const { code, state } = query as { code?: string; state?: string };
     const storedState = cookie?.oauth_state?.value;
 
@@ -224,7 +224,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         ...sessionCookie.attributes,
       });
 
-      set.redirect = FRONTEND_URL;
+      return redirect(FRONTEND_URL);
     } catch (error) {
       console.error("Discord OAuth callback error:", error);
       set.status = 500;
@@ -233,7 +233,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   })
 
   // ── Battle.net OAuth2 ───────────────────────────────────────────────
-  .get("/battlenet", ({ cookie, set }) => {
+  .get("/battlenet", ({ cookie, redirect }) => {
     const state = generateState();
 
     cookie.oauth_state.set({
@@ -253,10 +253,10 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       state,
     });
 
-    set.redirect = `https://oauth.battle.net/authorize?${params.toString()}`;
+    return redirect(`https://oauth.battle.net/authorize?${params.toString()}`);
   })
 
-  .get("/battlenet/callback", async ({ query, cookie, set }) => {
+  .get("/battlenet/callback", async ({ query, cookie, set, redirect }) => {
     const { code, state } = query as { code?: string; state?: string };
     const storedState = cookie?.oauth_state?.value;
 
@@ -294,7 +294,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         ...sessionCookie.attributes,
       });
 
-      set.redirect = FRONTEND_URL;
+      return redirect(FRONTEND_URL);
     } catch (error) {
       console.error("Battle.net OAuth callback error:", error);
       set.status = 500;

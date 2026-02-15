@@ -171,10 +171,16 @@ async function seed() {
   }
 
   console.log("[Seed] Database seeded successfully!");
-  process.exit(0);
 }
 
-seed().catch((err) => {
-  console.error("[Seed] Failed:", err);
-  process.exit(1);
-});
+export { seed };
+
+// Allow running as a standalone script: bun run src/db/seed.ts
+if (import.meta.main) {
+  seed()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error("[Seed] Failed:", err);
+      process.exit(1);
+    });
+}
