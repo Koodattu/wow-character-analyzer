@@ -1,0 +1,19 @@
+# ──────────────────────────────────────────────────────────
+# Docker Compose — Development Overrides
+# Auto-loaded by Docker Compose (no -f flag needed)
+#
+# Exposes backend and frontend ports directly to the host
+# for local development without Nginx.
+#
+# Usage:
+#   docker compose up        ← automatically merges this file
+# ──────────────────────────────────────────────────────────
+
+services:
+  backend:
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+
+  frontend:
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"

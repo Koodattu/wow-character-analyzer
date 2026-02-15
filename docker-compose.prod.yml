@@ -1,0 +1,68 @@
+# ──────────────────────────────────────────────────────────
+# Docker Compose — Production Overrides
+# Adds Nginx reverse proxy + Certbot for SSL
+# Removes direct port exposure from backend/frontend
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Or set COMPOSE_FILE in .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+# ──────────────────────────────────────────────────────────
+
+services:
+  # ── Nginx Reverse Proxy ─────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    environment:
+      - DOMAIN=${DOMAIN}
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget --spider --quiet http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - app-network
+    # Reload nginx every 6h to pick up renewed certificates
+    command: >
+      /bin/sh -c '
+        while :; do sleep 6h & wait $${!}; nginx -s reload; done &
+        nginx -g "daemon off;"
+      '
+
+  # ── Certbot (Let's Encrypt) ─────────────────────────────
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    networks:
+      - app-network
+    # Attempt renewal every 12h (certbot skips if not needed)
+    entrypoint: >
+      /bin/sh -c '
+        trap exit TERM;
+        while :; do
+          certbot renew --quiet;
+          sleep 12h & wait $${!};
+        done
+      '
