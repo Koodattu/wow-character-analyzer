@@ -43,7 +43,7 @@ Parses are categorized into tiers following the WarcraftLogs color scale:
 - **Backend:** Elysia (TypeScript)
 - **Frontend:** Next.js 16 + React 19
 - **Database:** PostgreSQL with Drizzle ORM
-- **Queue:** Redis + BullMQ
+- **Queue:** BunQueue (embedded, SQLite-backed)
 - **UI:** Tailwind CSS v4 + shadcn/ui
 - **Auth:** Lucia v3 (Discord & Battle.net OAuth2)
 - **AI:** OpenAI (gpt-4o-mini)
@@ -53,7 +53,7 @@ Parses are categorized into tiers following the WarcraftLogs color scale:
 
 The core design principle is **separating raw data from processed data**. Fetched API responses are stored permanently and never re-fetched. Computed profiles, statistics, and AI summaries are derived from that raw data and can be regenerated at any time — meaning analysis logic can be iterated on without burning API quota.
 
-Processing runs through BullMQ with two priority queues (lightweight scan first, deep scan in the background), and the whole thing is sized to run on a single 1-core / 1 GB RAM VPS.
+Processing runs through BunQueue with two priority queues (lightweight scan first, deep scan in the background). BunQueue runs embedded in the backend process with zero external dependencies and SQLite-based persistence — no Redis needed. The whole thing is sized to run on a single 1-core / 1 GB RAM VPS.
 
 ## Getting Started
 
@@ -69,9 +69,6 @@ Copy `.env.example` (if available) or configure the following:
 ```env
 # Database
 DATABASE_URL=postgresql://user:pass@db:5432/wow_analyzer
-
-# Redis
-REDIS_URL=redis://redis:6379
 
 # OAuth
 DISCORD_CLIENT_ID=

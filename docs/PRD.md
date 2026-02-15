@@ -4,7 +4,7 @@
 
 A full-stack TypeScript web application that analyzes World of Warcraft characters' PvE performance (raids + M+) by aggregating data from WarcraftLogs, Raider.IO, and the Blizzard API, then presenting a rich character profile with AI-generated insights. Users log in via Discord or Battle.net, queue characters for analysis, and browse dynamically-updating character pages. The system separates **raw data collection** from **data processing** — fetched data is stored permanently, while computed profiles can be regenerated at any time by re-running analysis logic. Two processing tiers exist: a fast lightweight scan (prioritized when users are queueing) and a slow deep scan (background, progression logs). Runs on a single 1-core/1GB RAM VPS via Docker.
 
-**Existing stack:** Bun runtime, Elysia backend, Next.js 16 + React 19 frontend, PostgreSQL + Drizzle ORM, Tailwind CSS v4 + shadcn/ui, Lucia v3 auth, Eden Treaty type bridge — all scaffolded but not yet implemented. Docker Compose with Nginx/Certbot production config already in place.
+**Existing stack:** Bun runtime, Elysia backend, Next.js 16 + React 19 frontend, PostgreSQL + Drizzle ORM, BunQueue (embedded job queue), Tailwind CSS v4 + shadcn/ui, Lucia v3 auth, Eden Treaty type bridge — all scaffolded but not yet implemented. Docker Compose with Nginx/Certbot production config already in place.
 
 ---
 
@@ -58,7 +58,7 @@ The **most critical architectural decision**: separate **raw fetched data** from
 | `sessions`              | Lucia v3 sessions                                                                                    | Auth      |
 | `oauth_accounts`        | Provider-specific OAuth data per user                                                                | Auth      |
 | `characters`            | Canonical character records (name, realm, region, class, race, faction, guild, profile pic, bnet ID) | Raw       |
-| `character_queue`       | BullMQ-managed but tracked here for UI: who queued, priority, status                                 | Queue     |
+| `character_queue`       | BunQueue-managed but tracked here for UI: who queued, priority, status                               | Queue     |
 | `processing_state`      | Per-character scan progress: which steps done, lightweight vs deep scan status                       | Queue     |
 | `expansions`            | Expansion definitions (id, name, slug, logo URL, min season, max season)                             | Config    |
 | `seasons`               | Season definitions per expansion (id, expansion_id, name, number)                                    | Config    |
@@ -87,7 +87,7 @@ The **most critical architectural decision**: separate **raw fetched data** from
 
 - **Primary data source** for raid performance: fights, parses, deaths, casts.
 - Authentication: OAuth2 client credentials flow (client ID + secret → bearer token).
-- **Rate limit handling**: Global rate limit tracker. Each WCL GraphQL response includes `X-RateLimit-*` headers (points remaining, reset time). Track this in-memory (shared across BullMQ workers via a singleton). When approaching the limit, pause processing and resume after reset. Display rate limit status in admin panel.
+- **Rate limit handling**: Global rate limit tracker. Each WCL GraphQL response includes `X-RateLimit-*` headers (points remaining, reset time). Track this in-memory (shared across BunQueue workers via a singleton). When approaching the limit, pause processing and resume after reset. Display rate limit status in admin panel.
 - **Fetch strategy per character**:
   - **Lightweight scan** (priority): Fetch character's ranked kills via `characterData.character.encounterRankings` for each tracked boss. This gives kill count, best/median parse, and basic data with minimal API points.
   - **Deep scan** (background): For each kill, fetch the full report → fight details → events (deaths, casts for defensives/consumables). Navigate from character → fights → reports → potentially guild reports for progression (wipe) logs.
@@ -112,15 +112,16 @@ The **most critical architectural decision**: separate **raw fetched data** from
 
 ### 4. Processing Pipeline
 
-**4.1 Queue System — Redis + BullMQ**
+**4.1 Queue System — BunQueue (Embedded)**
 
-- Add Redis (Alpine, ~50MB memory limit) to Docker Compose.
-- Two BullMQ queues:
+- Uses BunQueue in **embedded mode** — a BullMQ-compatible job queue built for Bun with zero external dependencies. No Redis required.
+- Persistence via embedded SQLite (automatic, configured via `dataPath`). Queue state survives restarts without a separate service.
+- Two BunQueue queues:
   - **`lightweight-scan`** — high priority. Processes the initial character scan (Blizzard profile + WCL ranked kills + Raider.IO M+ score/runs). Yields a usable character page quickly.
   - **`deep-scan`** — low priority. Fetches full fight events (deaths, casts, progression logs) for richer analysis. Only runs when `lightweight-scan` queue is empty.
 - Both queues process **one job at a time** (single concurrency) to respect the 1-core constraint and API rate limits.
 - Processing state persisted in PostgreSQL (`processing_state` table) so the frontend can show exactly which step a character is on.
-- On server restart, BullMQ resumes from Redis. Any in-progress jobs are retried.
+- On server restart, BunQueue resumes from its SQLite store. Any in-progress jobs are retried.
 
 **4.2 Lightweight Scan Steps** (per character)
 
@@ -142,7 +143,7 @@ The **most critical architectural decision**: separate **raw fetched data** from
 
 - A global rate limit manager (singleton in the backend process) tracks points remaining for WCL, request counts for Blizzard/Raider.IO.
 - Each API call updates the tracker from response headers.
-- When WCL points are near exhaustion, the manager pauses the BullMQ worker. A timer resumes processing when the rate limit resets (timestamp provided by WCL).
+- When WCL points are near exhaustion, the manager pauses the BunQueue worker (via `worker.pause()`). A timer resumes processing (via `worker.resume()`) when the rate limit resets (timestamp provided by WCL).
 - All API calls include a configurable sleep interval (default 200ms) between sequential requests.
 - Admin panel displays: current points remaining, reset timestamp, requests made this hour, characters in queue, estimated time to completion.
 
@@ -315,15 +316,16 @@ Standardized parse interpretation displayed as badges/labels:
 | Service                       | Memory Limit | Purpose                       |
 | ----------------------------- | ------------ | ----------------------------- |
 | `db` (PostgreSQL 17)          | 200MB        | Primary datastore             |
-| `redis` (Redis 7 Alpine)      | 50MB         | BullMQ job queue persistence  |
-| backend (Bun + Elysia)        | 192MB        | API server + BullMQ workers   |
+| backend (Bun + Elysia)        | 242MB        | API server + BunQueue workers |
 | frontend (Next.js standalone) | 384MB        | SSR + static serving          |
 | nginx (prod only)             | 64MB         | Reverse proxy + SSL           |
 | **Total**                     | **~890MB**   | Fits 1GB VPS with OS overhead |
 
+> **Note:** No Redis service required. BunQueue runs embedded in the backend process with SQLite-based persistence, freeing ~50MB of RAM compared to a Redis-backed queue.
+
 **9.2 Performance Considerations**
 
-- Backend runs API server and BullMQ worker in the same process (separate in-process concern, not separate service) to save memory.
+- Backend runs API server and BunQueue worker in the same process (BunQueue's embedded mode — no external service needed) to save memory.
 - Single concurrency for processing — one character at a time, one API call at a time.
 - PostgreSQL tuned for low memory (64MB shared buffers, 20 max connections).
 - Frontend uses Next.js standalone output for minimal footprint.
@@ -362,9 +364,6 @@ Standardized parse interpretation displayed as badges/labels:
 ```
 # Database
 POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, DATABASE_URL
-
-# Redis
-REDIS_URL=redis://redis:6379
 
 # Auth
 DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI
@@ -406,7 +405,7 @@ The `MIN_EXPANSION_SLUG` env var (or config row) defines the oldest expansion to
 - **Duplicate queue requests**: If character is already queued or recently processed, skip. Allow re-queue after a cooldown (e.g., 24 hours) or if admin triggers.
 - **WCL rate limit exhaustion**: Pause processing, show "Rate limited, resuming at {time}" in admin panel and on processing characters' status.
 - **External API downtime**: Retry with exponential backoff (3 attempts). Mark step as failed. Allow admin to retry failed steps.
-- **Server restart mid-processing**: BullMQ (Redis-backed) resumes jobs. Processing state in PostgreSQL shows last completed step; processing resumes from there.
+- **Server restart mid-processing**: BunQueue (SQLite-backed) resumes jobs. Processing state in PostgreSQL shows last completed step; processing resumes from there.
 
 ---
 
@@ -423,7 +422,7 @@ The `MIN_EXPANSION_SLUG` env var (or config row) defines the oldest expansion to
 
 ### Decisions
 
-- **Redis + BullMQ** over PostgreSQL-only queue: User preference for robustness and learning, despite added ~50MB RAM overhead.
+- **BunQueue (embedded)** over Redis + BullMQ: BullMQ-compatible API with zero external dependencies. Uses SQLite for persistence instead of Redis, eliminating a separate service and saving ~50MB RAM. Purpose-built for Bun.
 - **Short-polling** over WebSockets: Simpler, no persistent connection overhead, sufficient for 3-5 second update intervals on a resource-constrained server.
 - **OpenAI (gpt-4o-mini)** as the AI provider: Cost-efficient, fast, sufficient for structured analysis summaries.
 - **Two-tier processing** (lightweight + deep scan): Enables fast initial character pages while enriching data in the background.
