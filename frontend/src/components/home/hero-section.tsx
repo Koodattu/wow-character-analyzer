@@ -19,7 +19,7 @@ export function HeroSection() {
 
   return (
     <section className="relative overflow-hidden border-b border-border/40 bg-linear-to-b from-background to-muted/20">
-      <div className="container max-w-screen-2xl px-4 py-16 md:py-24">
+      <div className="container mx-auto max-w-screen-2xl px-4 py-16 md:py-24">
         <div className="flex flex-col items-center text-center space-y-6">
           <div className="flex items-center gap-3">
             <Shield className="h-12 w-12 text-primary" />

@@ -111,7 +111,7 @@ export default function AdminPage() {
 
   if (authLoading) {
     return (
-      <div className="container max-w-7xl px-4 py-8 space-y-6">
+      <div className="container mx-auto max-w-7xl px-4 py-8 space-y-6">
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
@@ -125,7 +125,7 @@ export default function AdminPage() {
   if (!user?.isAdmin) return null;
 
   return (
-    <div className="container max-w-7xl px-4 py-8 space-y-8">
+    <div className="container mx-auto max-w-7xl px-4 py-8 space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Admin Panel</h1>

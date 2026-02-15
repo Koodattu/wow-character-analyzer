@@ -233,7 +233,7 @@ export default function DashboardPage() {
 
   if (authLoading) {
     return (
-      <div className="container max-w-5xl px-4 py-8 space-y-6">
+      <div className="container mx-auto max-w-5xl px-4 py-8 space-y-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-40 w-full" />
@@ -244,7 +244,7 @@ export default function DashboardPage() {
   if (!user) return null;
 
   return (
-    <div className="container max-w-5xl px-4 py-8 space-y-8">
+    <div className="container mx-auto max-w-5xl px-4 py-8 space-y-8">
       <div>
         <h1 className="text-3xl font-bold">Dashboard</h1>
         <p className="text-muted-foreground mt-1">Welcome, {user.username ?? "Adventurer"}</p>

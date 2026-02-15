@@ -34,7 +34,7 @@ export default function SearchPage() {
   return (
     <Suspense
       fallback={
-        <div className="container max-w-7xl px-4 py-8">
+        <div className="container mx-auto max-w-7xl px-4 py-8">
           <h1 className="text-3xl font-bold mb-6">Search Characters</h1>
           <div className="space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -109,7 +109,7 @@ function SearchContent() {
   };
 
   return (
-    <div className="container max-w-7xl px-4 py-8">
+    <div className="container mx-auto max-w-7xl px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Search Characters</h1>
 
       <form onSubmit={handleSearch} className="flex gap-2 mb-8">

@@ -287,7 +287,7 @@ export default function CharacterProfilePage() {
   // ─── Loading State ─────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="container max-w-screen-2xl px-4 py-8 space-y-6">
+      <div className="container mx-auto max-w-screen-2xl px-4 py-8 space-y-6">
         <div className="flex items-center gap-6">
           <Skeleton className="h-24 w-24 rounded-full" />
           <div className="space-y-3">
@@ -309,7 +309,7 @@ export default function CharacterProfilePage() {
   // ─── Not Found ─────────────────────────────────────────────────────
   if (error || !data?.character) {
     return (
-      <div className="container max-w-screen-2xl px-4 py-16 flex flex-col items-center justify-center gap-4">
+      <div className="container mx-auto max-w-screen-2xl px-4 py-16 flex flex-col items-center justify-center gap-4">
         <AlertTriangle className="h-16 w-16 text-muted-foreground" />
         <h1 className="text-2xl font-bold text-foreground">Character not found</h1>
         <p className="text-muted-foreground">{error ?? `Could not find "${decodeURIComponent(name)}" on ${decodeURIComponent(realm)}.`}</p>
@@ -333,7 +333,7 @@ export default function CharacterProfilePage() {
   const currentScore = mythicPlusScores.length > 0 ? mythicPlusScores[0] : null;
 
   return (
-    <div className="container max-w-screen-2xl px-4 py-8 space-y-8">
+    <div className="container mx-auto max-w-screen-2xl px-4 py-8 space-y-8">
       {/* ── Header Section ──────────────────────────────────────────── */}
       <div
         className="flex flex-col sm:flex-row items-start sm:items-center gap-6 rounded-xl border p-6"
