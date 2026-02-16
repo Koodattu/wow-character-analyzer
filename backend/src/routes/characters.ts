@@ -83,10 +83,11 @@ async function getWaitingCharacters() {
       profilePicUrl: characters.profilePicUrl,
       queuedAt: characterQueue.createdAt,
     })
-    .from(characterQueue)
-    .innerJoin(characters, eq(characterQueue.characterId, characters.id))
-    .where(eq(characterQueue.status, "pending"))
-    .orderBy(desc(characterQueue.createdAt))
+    .from(characters)
+    .innerJoin(processingState, eq(characters.id, processingState.characterId))
+    .leftJoin(characterQueue, and(eq(characterQueue.characterId, characters.id), eq(characterQueue.status, "pending")))
+    .where(eq(processingState.lightweightStatus, "pending"))
+    .orderBy(desc(characterQueue.createdAt), desc(processingState.updatedAt))
     .limit(12);
 
   return results;
