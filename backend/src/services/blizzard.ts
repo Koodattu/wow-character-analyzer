@@ -78,9 +78,23 @@ export interface BlizzardCharacterProfile {
   level: number;
 }
 
+function normalizePathParts(realmSlug: string, characterName: string) {
+  const safeRealm = realmSlug?.trim().toLowerCase();
+  const safeName = characterName?.trim().toLowerCase();
+
+  if (!safeRealm || !safeName) {
+    log.warn({ realmSlug, characterName }, "Skipping Blizzard request due to missing character path parameters");
+    return null;
+  }
+
+  return { safeRealm, safeName };
+}
+
 export async function fetchCharacterProfile(realmSlug: string, characterName: string, region: string = "eu"): Promise<BlizzardCharacterProfile | null> {
-  const name = characterName.toLowerCase();
-  const url = `https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${name}?namespace=profile-${region}&locale=en_US`;
+  const parts = normalizePathParts(realmSlug, characterName);
+  if (!parts) return null;
+
+  const url = `https://${region}.api.blizzard.com/profile/wow/character/${parts.safeRealm}/${parts.safeName}?namespace=profile-${region}&locale=en_US`;
   return blizzardFetch(url);
 }
 
@@ -93,8 +107,10 @@ export interface BlizzardCharacterMedia {
 }
 
 export async function fetchCharacterMedia(realmSlug: string, characterName: string, region: string = "eu"): Promise<BlizzardCharacterMedia | null> {
-  const name = characterName.toLowerCase();
-  const url = `https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${name}/character-media?namespace=profile-${region}&locale=en_US`;
+  const parts = normalizePathParts(realmSlug, characterName);
+  if (!parts) return null;
+
+  const url = `https://${region}.api.blizzard.com/profile/wow/character/${parts.safeRealm}/${parts.safeName}/character-media?namespace=profile-${region}&locale=en_US`;
   return blizzardFetch(url);
 }
 
@@ -125,8 +141,10 @@ const AOTC_IDS = new Set([
 ]);
 
 export async function fetchCharacterAchievements(realmSlug: string, characterName: string, region: string = "eu"): Promise<BlizzardAchievement[]> {
-  const name = characterName.toLowerCase();
-  const url = `https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${name}/achievements?namespace=profile-${region}&locale=en_US`;
+  const parts = normalizePathParts(realmSlug, characterName);
+  if (!parts) return [];
+
+  const url = `https://${region}.api.blizzard.com/profile/wow/character/${parts.safeRealm}/${parts.safeName}/achievements?namespace=profile-${region}&locale=en_US`;
   const data = await blizzardFetch(url);
 
   if (!data?.achievements) return [];

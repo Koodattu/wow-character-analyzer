@@ -84,6 +84,13 @@ const lightweightWorker = new Worker(
       // Update status
       await db.update(processingState).set({ lightweightStatus: "in_progress", currentStep: "Starting..." }).where(eq(processingState.characterId, characterId));
 
+      await db
+        .update(processingState)
+        .set({
+          errorMessage: null,
+        })
+        .where(eq(processingState.characterId, characterId));
+
       await db.update(characterQueue).set({ status: "processing" }).where(eq(characterQueue.characterId, characterId));
 
       // ── Step 1: Blizzard Profile ───────────────────────────────
@@ -235,6 +242,7 @@ const lightweightWorker = new Worker(
           lightweightStatus: "completed",
           currentStep: "Complete",
           lightweightCompletedAt: new Date(),
+          errorMessage: null,
         })
         .where(eq(processingState.characterId, characterId));
 
@@ -297,6 +305,7 @@ const deepScanWorker = new Worker(
         .set({
           deepScanStatus: "in_progress",
           currentStep: "Deep scan: starting",
+          errorMessage: null,
         })
         .where(eq(processingState.characterId, characterId));
 
@@ -310,6 +319,7 @@ const deepScanWorker = new Worker(
           deepScanStatus: "completed",
           currentStep: "Complete",
           deepScanCompletedAt: new Date(),
+          errorMessage: null,
         })
         .where(eq(processingState.characterId, characterId));
 

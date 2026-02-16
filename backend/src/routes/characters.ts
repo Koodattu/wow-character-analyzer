@@ -275,8 +275,10 @@ export const characterRoutes = new Elysia({ prefix: "/api/characters" })
           .update(processingState)
           .set({
             lightweightStatus: "pending",
+            deepScanStatus: "pending",
             currentStep: "Queued",
             stepsCompleted: [],
+            errorMessage: null,
           })
           .where(eq(processingState.characterId, existing.id));
       }

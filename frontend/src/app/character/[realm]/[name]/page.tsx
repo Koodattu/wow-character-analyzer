@@ -231,8 +231,8 @@ function getMplusScoreColor(score: number | null | undefined): string {
 
 export default function CharacterProfilePage() {
   const params = useParams();
-  const realm = params.realm as string;
-  const name = params.name as string;
+  const realm = typeof params.realm === "string" ? decodeURIComponent(params.realm) : "";
+  const name = typeof params.name === "string" ? decodeURIComponent(params.name) : "";
 
   const [data, setData] = useState<CharacterData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -240,8 +240,14 @@ export default function CharacterProfilePage() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchCharacter = useCallback(async () => {
+    if (!realm || !name) {
+      setError("Invalid character URL");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await api.api.characters({ realm })({ name }).get();
+      const response = await api.api.characters[realm][name].get();
 
       if (response.data) {
         const d = response.data as unknown as CharacterData;
@@ -455,7 +461,7 @@ export default function CharacterProfilePage() {
           </Card>
         )}
 
-      {processing?.errorMessage && (
+      {processing?.errorMessage && (processing.lightweightStatus === "failed" || processing.deepScanStatus === "failed") && (
         <Card className="border-destructive/50 bg-destructive/5">
           <CardContent className="flex items-center gap-3 py-4">
             <AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />
