@@ -17,9 +17,7 @@ import {
 import { authPlugin, requireAuth } from "../auth/middleware";
 import { createId } from "@paralleldrive/cuid2";
 import { log } from "../lib/logger";
-import { publishProcessingUpdate, publishUserQueuedUpdate, subscribeProcessingUpdates } from "../lib/sse";
-
-const sseEncoder = new TextEncoder();
+import { createSseResponse, publishProcessingUpdate, publishUserQueuedUpdate, subscribeProcessingUpdates } from "../lib/sse";
 
 async function getProcessingCharacters() {
   const results = await db
@@ -223,247 +221,13 @@ export const characterRoutes = new Elysia({ prefix: "/api/characters" })
     },
   )
 
-  // ── Featured Characters (frontpage, processed only) ─────────────────
-  .get("/featured", async () => {
-    const results = await getFeaturedCharacters();
-
-    return { characters: results };
-  })
-
-  // ── Stream Processed Characters Updates (SSE) ──────────────────────
-  .get("/featured/stream", async ({ request }) => {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        let closed = false;
-
-        const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
-          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-        };
-
-        const sendSnapshot = async (event: "snapshot" | "update") => {
-          try {
-            const characters = await getFeaturedCharacters();
-            sendEvent(event, { characters });
-          } catch {
-            sendEvent("error", { error: "Failed to load processed characters" });
-          }
-        };
-
-        const unsubscribe = subscribeProcessingUpdates(() => {
-          void sendSnapshot("update");
-        });
-
-        const heartbeat = setInterval(() => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(": ping\n\n"));
-        }, 15000);
-
-        const close = () => {
-          if (closed) return;
-          closed = true;
-          clearInterval(heartbeat);
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            // stream already closed
-          }
-        };
-
-        request.signal.addEventListener("abort", close, { once: true });
-        void sendSnapshot("snapshot");
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
-  })
-
-  // ── Waiting To Be Processed (frontpage) ─────────────────────────────
-  .get("/waiting", async () => {
-    const results = await getWaitingCharacters();
-
-    return { characters: results };
-  })
-
-  // ── Stream Waiting Characters Updates (SSE) ────────────────────────
-  .get("/waiting/stream", async ({ request }) => {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        let closed = false;
-
-        const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
-          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-        };
-
-        const sendSnapshot = async (event: "snapshot" | "update") => {
-          try {
-            const characters = await getWaitingCharacters();
-            sendEvent(event, { characters });
-          } catch {
-            sendEvent("error", { error: "Failed to load waiting characters" });
-          }
-        };
-
-        const unsubscribe = subscribeProcessingUpdates(() => {
-          void sendSnapshot("update");
-        });
-
-        const heartbeat = setInterval(() => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(": ping\n\n"));
-        }, 15000);
-
-        const close = () => {
-          if (closed) return;
-          closed = true;
-          clearInterval(heartbeat);
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            // stream already closed
-          }
-        };
-
-        request.signal.addEventListener("abort", close, { once: true });
-        void sendSnapshot("snapshot");
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
-  })
-
   // ── Stream Frontpage Data Updates (SSE) ────────────────────────────
   .get("/frontpage/stream", async ({ request }) => {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        let closed = false;
-
-        const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
-          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-        };
-
-        const sendSnapshot = async (event: "snapshot" | "update") => {
-          try {
-            const payload = await getFrontpagePayload();
-            sendEvent(event, payload);
-          } catch {
-            sendEvent("error", { error: "Failed to load frontpage state" });
-          }
-        };
-
-        const unsubscribe = subscribeProcessingUpdates(() => {
-          void sendSnapshot("update");
-        });
-
-        const heartbeat = setInterval(() => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(": ping\n\n"));
-        }, 15000);
-
-        const close = () => {
-          if (closed) return;
-          closed = true;
-          clearInterval(heartbeat);
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            // stream already closed
-          }
-        };
-
-        request.signal.addEventListener("abort", close, { once: true });
-        void sendSnapshot("snapshot");
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
-  })
-
-  // ── Currently Processing ────────────────────────────────────────────
-  .get("/processing", async () => {
-    const results = await getProcessingCharacters();
-    return { characters: results };
-  })
-
-  // ── Stream Processing Updates (SSE) ────────────────────────────────
-  .get("/processing/stream", async ({ request }) => {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        let closed = false;
-
-        const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
-          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-        };
-
-        const sendSnapshot = async (event: "snapshot" | "update") => {
-          try {
-            const characters = await getProcessingCharacters();
-            sendEvent(event, { characters });
-          } catch {
-            sendEvent("error", { error: "Failed to load processing state" });
-          }
-        };
-
-        const unsubscribe = subscribeProcessingUpdates(() => {
-          void sendSnapshot("update");
-        });
-
-        const heartbeat = setInterval(() => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(": ping\n\n"));
-        }, 15000);
-
-        const close = () => {
-          if (closed) return;
-          closed = true;
-          clearInterval(heartbeat);
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            // stream already closed
-          }
-        };
-
-        request.signal.addEventListener("abort", close, { once: true });
-        void sendSnapshot("snapshot");
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
+    return createSseResponse({
+      request,
+      subscribe: subscribeProcessingUpdates,
+      loadSnapshot: getFrontpagePayload,
+      snapshotErrorMessage: "Failed to load frontpage state",
     });
   })
 
@@ -485,57 +249,11 @@ export const characterRoutes = new Elysia({ prefix: "/api/characters" })
   .get(
     "/:realm/:name/stream",
     async ({ params, request }) => {
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          let closed = false;
-
-          const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
-            if (closed) return;
-            controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
-            controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-          };
-
-          const sendSnapshot = async (event: "snapshot" | "update") => {
-            try {
-              const payload = await getCharacterProfilePayload(params.realm, params.name);
-              sendEvent(event, payload);
-            } catch {
-              sendEvent("error", { error: "Failed to load character state" });
-            }
-          };
-
-          const unsubscribe = subscribeProcessingUpdates(() => {
-            void sendSnapshot("update");
-          });
-
-          const heartbeat = setInterval(() => {
-            if (closed) return;
-            controller.enqueue(sseEncoder.encode(": ping\n\n"));
-          }, 15000);
-
-          const close = () => {
-            if (closed) return;
-            closed = true;
-            clearInterval(heartbeat);
-            unsubscribe();
-            try {
-              controller.close();
-            } catch {
-              // stream already closed
-            }
-          };
-
-          request.signal.addEventListener("abort", close, { once: true });
-          void sendSnapshot("snapshot");
-        },
-      });
-
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache, no-transform",
-          Connection: "keep-alive",
-        },
+      return createSseResponse({
+        request,
+        subscribe: subscribeProcessingUpdates,
+        loadSnapshot: () => getCharacterProfilePayload(params.realm, params.name),
+        snapshotErrorMessage: "Failed to load character state",
       });
     },
     {

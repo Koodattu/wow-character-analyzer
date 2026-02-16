@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import { api } from "@/lib/api";
+import { bindJsonSseEvents, openEventSource } from "@/lib/sse";
 import { getClassColor, getParseColor, getParseTier, getFactionColor } from "@/lib/wow-constants";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,8 +13,6 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { Shield, Skull, Swords, Trophy, Brain, Activity, Timer, TrendingUp, TrendingDown, AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -275,39 +274,19 @@ export default function CharacterProfilePage() {
   useEffect(() => {
     if (!realm || !name) return;
 
-    const stream = new EventSource(`${API_URL}/api/characters/${encodeURIComponent(realm)}/${encodeURIComponent(name)}/stream`, {
-      withCredentials: true,
-    });
+    const stream = openEventSource(`/api/characters/${encodeURIComponent(realm)}/${encodeURIComponent(name)}/stream`);
 
-    const handleData = (event: MessageEvent) => {
-      try {
-        const payload = JSON.parse(event.data) as CharacterData;
-        setData(payload);
+    return bindJsonSseEvents<CharacterData>(stream, (payload) => {
+      setData(payload);
 
-        if (payload.error && !payload.character) {
-          setError(payload.error);
-        } else {
-          setError(null);
-        }
-
-        setLoading(false);
-      } catch {
-        // ignore malformed payload
+      if (payload.error && !payload.character) {
+        setError(payload.error);
+      } else {
+        setError(null);
       }
-    };
 
-    stream.addEventListener("snapshot", handleData as EventListener);
-    stream.addEventListener("update", handleData as EventListener);
-
-    stream.onerror = () => {
-      // connection auto-retries
-    };
-
-    return () => {
-      stream.removeEventListener("snapshot", handleData as EventListener);
-      stream.removeEventListener("update", handleData as EventListener);
-      stream.close();
-    };
+      setLoading(false);
+    });
   }, [realm, name]);
 
   // ─── Loading State ─────────────────────────────────────────────────

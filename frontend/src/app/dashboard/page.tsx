@@ -13,9 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getClassColor } from "@/lib/wow-constants";
+import { bindJsonSseEvents, openEventSource } from "@/lib/sse";
 import { Link as LinkIcon, UserPlus, Send, Loader2, RefreshCw, Shield, Check, X, Unlink } from "lucide-react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 interface BnetCharacter {
   name: string;
@@ -198,37 +197,14 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return;
 
-    const stream = new EventSource(`${API_URL}/api/user/queued/stream`, {
-      withCredentials: true,
-    });
+    const stream = openEventSource("/api/user/queued/stream");
 
-    const handleData = (event: MessageEvent) => {
-      try {
-        const payload = JSON.parse(event.data) as {
-          queuedCharacters?: QueuedCharacterRow[];
-        };
-
-        if (Array.isArray(payload.queuedCharacters)) {
-          setQueuedCharacters(mapQueuedRows(payload.queuedCharacters));
-          setQueuedLoading(false);
-        }
-      } catch {
-        // ignore malformed payload
+    return bindJsonSseEvents<{ queuedCharacters?: QueuedCharacterRow[] }>(stream, (payload) => {
+      if (Array.isArray(payload.queuedCharacters)) {
+        setQueuedCharacters(mapQueuedRows(payload.queuedCharacters));
+        setQueuedLoading(false);
       }
-    };
-
-    stream.addEventListener("snapshot", handleData as EventListener);
-    stream.addEventListener("update", handleData as EventListener);
-
-    stream.onerror = () => {
-      // connection auto-retries
-    };
-
-    return () => {
-      stream.removeEventListener("snapshot", handleData as EventListener);
-      stream.removeEventListener("update", handleData as EventListener);
-      stream.close();
-    };
+    });
   }, [user]);
 
   // Toggle character selection

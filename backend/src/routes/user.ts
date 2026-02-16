@@ -7,9 +7,7 @@ import { requireAuth } from "../auth/middleware";
 import { fetchUserCharacters } from "../services/blizzard";
 import { refreshBattleNetToken } from "../auth/helpers";
 import { log } from "../lib/logger";
-import { subscribeUserQueuedUpdates } from "../lib/sse";
-
-const sseEncoder = new TextEncoder();
+import { createSseResponse, subscribeUserQueuedUpdates } from "../lib/sse";
 
 async function getQueuedCharactersForUser(userId: string) {
   const results = await db
@@ -114,57 +112,11 @@ export const userRoutes = new Elysia({ prefix: "/api/user" })
 
   // ── Stream User's Queue Updates (SSE) ───────────────────────────────
   .get("/queued/stream", async ({ user, request }) => {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        let closed = false;
-
-        const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
-          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-        };
-
-        const sendSnapshot = async (event: "snapshot" | "update") => {
-          try {
-            const queuedCharacters = await getQueuedCharactersForUser(user.id);
-            sendEvent(event, { queuedCharacters });
-          } catch {
-            sendEvent("error", { error: "Failed to load queue state" });
-          }
-        };
-
-        const unsubscribe = subscribeUserQueuedUpdates(user.id, () => {
-          void sendSnapshot("update");
-        });
-
-        const heartbeat = setInterval(() => {
-          if (closed) return;
-          controller.enqueue(sseEncoder.encode(": ping\n\n"));
-        }, 15000);
-
-        const close = () => {
-          if (closed) return;
-          closed = true;
-          clearInterval(heartbeat);
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            // stream already closed
-          }
-        };
-
-        request.signal.addEventListener("abort", close, { once: true });
-        void sendSnapshot("snapshot");
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
+    return createSseResponse({
+      request,
+      subscribe: (subscriber) => subscribeUserQueuedUpdates(user.id, subscriber),
+      loadSnapshot: async () => ({ queuedCharacters: await getQueuedCharactersForUser(user.id) }),
+      snapshotErrorMessage: "Failed to load queue state",
     });
   })
 
