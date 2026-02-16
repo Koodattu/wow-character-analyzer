@@ -15,7 +15,7 @@ async function sleep(ms: number) {
 function withApiKey(url: string): string {
   if (!RAIDERIO_API_KEY) return url;
   const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}apikey=${RAIDERIO_API_KEY}`;
+  return `${url}${separator}access_key=${encodeURIComponent(RAIDERIO_API_KEY)}`;
 }
 
 async function raiderioFetch(url: string): Promise<any> {
