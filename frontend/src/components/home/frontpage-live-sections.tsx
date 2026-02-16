@@ -215,9 +215,7 @@ export function FrontpageLiveSections() {
             ))}
           </div>
         ) : waitingCharacters.length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center text-muted-foreground">No characters are currently waiting to be processed.</CardContent>
-          </Card>
+          <CardContent className="p-8 text-center text-muted-foreground">No characters are currently waiting to be processed.</CardContent>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {waitingCharacters.map((char) => (

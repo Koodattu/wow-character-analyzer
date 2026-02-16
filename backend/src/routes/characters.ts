@@ -1,6 +1,6 @@
 // ─── Character Routes ──────────────────────────────────────────────────
 import { Elysia, t } from "elysia";
-import { eq, and, ilike, or, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, ilike, or, desc, sql, inArray, ne } from "drizzle-orm";
 import { db } from "../db";
 import {
   characters,
@@ -63,7 +63,17 @@ async function getFeaturedCharacters() {
     .from(characters)
     .innerJoin(processingState, eq(characters.id, processingState.characterId))
     .leftJoin(characterProfiles, eq(characters.id, characterProfiles.characterId))
-    .where(or(eq(processingState.lightweightStatus, "completed"), eq(processingState.deepScanStatus, "completed")))
+    .where(
+      and(
+        ne(processingState.lightweightStatus, "in_progress"),
+        ne(processingState.deepScanStatus, "in_progress"),
+        or(
+          eq(processingState.lightweightStatus, "completed"),
+          eq(processingState.deepScanStatus, "completed"),
+          and(eq(processingState.lightweightStatus, "pending"), sql`${characterProfiles.characterId} IS NOT NULL`),
+        ),
+      ),
+    )
     .orderBy(desc(processingState.updatedAt))
     .limit(12);
 
