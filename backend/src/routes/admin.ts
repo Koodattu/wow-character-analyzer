@@ -6,6 +6,7 @@ import { characters, characterQueue, processingState, characterProfiles, charact
 import { requireAdmin } from "../auth/middleware";
 import { rateLimitManager } from "../services/rate-limiter";
 import { log } from "../lib/logger";
+import { publishProcessingUpdate, publishUserQueuedUpdate } from "../lib/sse";
 
 export const adminRoutes = new Elysia({ prefix: "/api/admin" })
   .use(requireAdmin)
@@ -136,6 +137,9 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
           } catch (error) {
             log.error({ err: error, characterId: char.id }, "Failed to requeue character");
           }
+
+          publishProcessingUpdate();
+          publishUserQueuedUpdate();
         }
 
         return { message: `Reprocessing triggered for ${allChars.length} characters` };
@@ -166,6 +170,9 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
           } catch (error) {
             log.error({ err: error, characterId }, "Failed to requeue character");
           }
+
+          publishProcessingUpdate();
+          publishUserQueuedUpdate();
         }
 
         return { message: `Reprocessing triggered for character ${characterId}` };

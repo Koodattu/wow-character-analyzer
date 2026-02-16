@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
@@ -47,6 +47,48 @@ interface QueuedCharacter {
     totalSteps: number;
     errorMessage: string | null;
   } | null;
+}
+
+interface QueuedCharacterRow {
+  queueId: string;
+  queueStatus: string;
+  characterId: string;
+  characterName: string;
+  characterRealm: string;
+  characterRealmSlug: string;
+  className: string | null;
+  lightweightStatus: string | null;
+  deepScanStatus: string | null;
+  currentStep: string | null;
+  stepsCompleted: string[] | null;
+  totalSteps: number | null;
+  errorMessage: string | null;
+}
+
+function mapQueuedRows(rows: QueuedCharacterRow[]): QueuedCharacter[] {
+  return rows.map((row) => ({
+    id: row.queueId,
+    characterId: row.characterId,
+    status: row.queueStatus,
+    character: {
+      id: row.characterId,
+      name: row.characterName,
+      realm: row.characterRealm,
+      realmSlug: row.characterRealmSlug,
+      className: row.className,
+      specName: null,
+    },
+    processing: row.lightweightStatus
+      ? {
+          lightweightStatus: row.lightweightStatus,
+          deepScanStatus: row.deepScanStatus ?? "pending",
+          currentStep: row.currentStep,
+          stepsCompleted: row.stepsCompleted ?? [],
+          totalSteps: row.totalSteps ?? 6,
+          errorMessage: row.errorMessage,
+        }
+      : null,
+  }));
 }
 
 function getStatusBadge(status: string) {
@@ -101,8 +143,6 @@ export default function DashboardPage() {
   const [queuedCharacters, setQueuedCharacters] = useState<QueuedCharacter[]>([]);
   const [queuedLoading, setQueuedLoading] = useState(true);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   const bnetLinked = user?.linkedProviders?.battlenet ?? false;
   const discordLinked = user?.linkedProviders?.discord ?? false;
 
@@ -140,8 +180,8 @@ export default function DashboardPage() {
     try {
       const res = await api.api.user.queued.get();
       const data = res.data as Record<string, unknown> | null;
-      if (data && "characters" in data) {
-        setQueuedCharacters((data.characters as QueuedCharacter[]) ?? []);
+      if (data && "queuedCharacters" in data && Array.isArray(data.queuedCharacters)) {
+        setQueuedCharacters(mapQueuedRows(data.queuedCharacters as QueuedCharacterRow[]));
       }
     } catch {
       // error
@@ -154,14 +194,42 @@ export default function DashboardPage() {
     fetchQueued();
   }, [fetchQueued]);
 
-  // Poll queued characters every 3s
+  // Live queued character updates over SSE
   useEffect(() => {
     if (!user) return;
-    pollRef.current = setInterval(fetchQueued, 3000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+
+    const stream = new EventSource(`${API_URL}/api/user/queued/stream`, {
+      withCredentials: true,
+    });
+
+    const handleData = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          queuedCharacters?: QueuedCharacterRow[];
+        };
+
+        if (Array.isArray(payload.queuedCharacters)) {
+          setQueuedCharacters(mapQueuedRows(payload.queuedCharacters));
+          setQueuedLoading(false);
+        }
+      } catch {
+        // ignore malformed payload
+      }
     };
-  }, [user, fetchQueued]);
+
+    stream.addEventListener("snapshot", handleData as EventListener);
+    stream.addEventListener("update", handleData as EventListener);
+
+    stream.onerror = () => {
+      // connection auto-retries
+    };
+
+    return () => {
+      stream.removeEventListener("snapshot", handleData as EventListener);
+      stream.removeEventListener("update", handleData as EventListener);
+      stream.close();
+    };
+  }, [user]);
 
   // Toggle character selection
   const toggleChar = (idx: number) => {
@@ -257,9 +325,7 @@ export default function DashboardPage() {
             <LinkIcon className="h-5 w-5" />
             Linked Accounts
           </CardTitle>
-          <CardDescription>
-            Connect both Discord and Battle.net to get the most out of WoW Analyzer.
-          </CardDescription>
+          <CardDescription>Connect both Discord and Battle.net to get the most out of WoW Analyzer.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Discord */}
@@ -272,9 +338,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="font-medium text-sm">Discord</p>
-                <p className="text-xs text-muted-foreground">
-                  {discordLinked ? "Connected" : "Not connected"}
-                </p>
+                <p className="text-xs text-muted-foreground">{discordLinked ? "Connected" : "Not connected"}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -288,7 +352,7 @@ export default function DashboardPage() {
                     variant="ghost"
                     size="sm"
                     onClick={() => handleUnlink("discord")}
-                    disabled={unlinking === "discord" || (!bnetLinked)}
+                    disabled={unlinking === "discord" || !bnetLinked}
                     title={!bnetLinked ? "Cannot unlink your only login provider" : "Unlink Discord"}
                   >
                     {unlinking === "discord" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
@@ -315,9 +379,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="font-medium text-sm">Battle.net</p>
-                <p className="text-xs text-muted-foreground">
-                  {bnetLinked ? "Connected — enables WoW character import" : "Not connected"}
-                </p>
+                <p className="text-xs text-muted-foreground">{bnetLinked ? "Connected — enables WoW character import" : "Not connected"}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -331,7 +393,7 @@ export default function DashboardPage() {
                     variant="ghost"
                     size="sm"
                     onClick={() => handleUnlink("battlenet")}
-                    disabled={unlinking === "battlenet" || (!discordLinked)}
+                    disabled={unlinking === "battlenet" || !discordLinked}
                     title={!discordLinked ? "Cannot unlink your only login provider" : "Unlink Battle.net"}
                   >
                     {unlinking === "battlenet" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}

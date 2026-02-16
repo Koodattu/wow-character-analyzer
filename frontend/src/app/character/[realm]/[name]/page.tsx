@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import { api } from "@/lib/api";
@@ -12,6 +12,8 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { Shield, Skull, Swords, Trophy, Brain, Activity, Timer, TrendingUp, TrendingDown, AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -237,7 +239,6 @@ export default function CharacterProfilePage() {
   const [data, setData] = useState<CharacterData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchCharacter = useCallback(async () => {
     if (!realm || !name) {
@@ -272,22 +273,42 @@ export default function CharacterProfilePage() {
   }, [fetchCharacter]);
 
   useEffect(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
+    if (!realm || !name) return;
 
-    const pollInterval = data && isProcessing(data.processing) ? 3000 : 30000;
+    const stream = new EventSource(`${API_URL}/api/characters/${encodeURIComponent(realm)}/${encodeURIComponent(name)}/stream`, {
+      withCredentials: true,
+    });
 
-    intervalRef.current = setInterval(() => {
-      fetchCharacter();
-    }, pollInterval);
+    const handleData = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as CharacterData;
+        setData(payload);
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+        if (payload.error && !payload.character) {
+          setError(payload.error);
+        } else {
+          setError(null);
+        }
+
+        setLoading(false);
+      } catch {
+        // ignore malformed payload
       }
     };
-  }, [data, fetchCharacter]);
+
+    stream.addEventListener("snapshot", handleData as EventListener);
+    stream.addEventListener("update", handleData as EventListener);
+
+    stream.onerror = () => {
+      // connection auto-retries
+    };
+
+    return () => {
+      stream.removeEventListener("snapshot", handleData as EventListener);
+      stream.removeEventListener("update", handleData as EventListener);
+      stream.close();
+    };
+  }, [realm, name]);
 
   // ─── Loading State ─────────────────────────────────────────────────
   if (loading) {

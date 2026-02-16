@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { getClassColor } from "@/lib/wow-constants";
 import { Progress } from "@/components/ui/progress";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 interface ProcessingCharacter {
   id: string;
@@ -30,24 +31,40 @@ export function ProcessingCharacters() {
   const [characters, setCharacters] = useState<ProcessingCharacter[]>([]);
 
   useEffect(() => {
-    async function fetchProcessing() {
+    const stream = new EventSource(`${API_URL}/api/characters/processing/stream`, {
+      withCredentials: true,
+    });
+
+    const handleData = (event: MessageEvent) => {
       try {
-        const response = await api.api.characters.processing.get();
-        if (response.data && "characters" in response.data) {
-          setCharacters(response.data.characters as ProcessingCharacter[]);
+        const payload = JSON.parse(event.data) as { characters?: ProcessingCharacter[] };
+        if (Array.isArray(payload.characters)) {
+          setCharacters(payload.characters);
         }
       } catch {
-        // API not available yet
+        // ignore malformed payload
       }
-    }
-    fetchProcessing();
+    };
 
-    // Poll every 5 seconds
-    const interval = setInterval(fetchProcessing, 5000);
-    return () => clearInterval(interval);
+    stream.addEventListener("snapshot", handleData as EventListener);
+    stream.addEventListener("update", handleData as EventListener);
+
+    stream.onerror = () => {
+      // connection auto-retries
+    };
+
+    return () => {
+      stream.removeEventListener("snapshot", handleData as EventListener);
+      stream.removeEventListener("update", handleData as EventListener);
+      stream.close();
+    };
   }, []);
 
   if (characters.length === 0) return null;
+
+  const currentCharacter = characters[0];
+  const stepsCount = (currentCharacter.stepsCompleted as string[])?.length ?? 0;
+  const progress = (stepsCount / currentCharacter.totalSteps) * 100;
 
   return (
     <section>
@@ -55,43 +72,41 @@ export function ProcessingCharacters() {
         <Loader2 className="h-5 w-5 animate-spin text-primary" />
         <h2 className="text-2xl font-bold">Currently Processing</h2>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-        {characters.map((char) => {
-          const stepsCount = (char.stepsCompleted as string[])?.length ?? 0;
-          const progress = (stepsCount / char.totalSteps) * 100;
-
-          return (
-            <Link key={char.id} href={`/character/${char.realmSlug}/${char.name.toLowerCase()}`}>
-              <Card className="transition-colors hover:bg-accent cursor-pointer">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    {char.profilePicUrl ? (
-                      <Image src={char.profilePicUrl} alt={char.name} width={40} height={40} unoptimized className="h-10 w-10 rounded-full border border-border" />
-                    ) : (
-                      <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center font-bold">{char.name[0]}</div>
-                    )}
-                    <div>
-                      <p className="font-semibold" style={{ color: getClassColor(char.className) }}>
-                        {char.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{char.realm}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">{char.currentStep}</span>
-                      <Badge variant="secondary" className="text-xs">
-                        {stepsCount}/{char.totalSteps}
-                      </Badge>
-                    </div>
-                    <Progress value={progress} className="h-1.5" />
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          );
-        })}
-      </div>
+      <Link href={`/character/${currentCharacter.realmSlug}/${currentCharacter.name.toLowerCase()}`}>
+        <Card className="transition-colors hover:bg-accent cursor-pointer">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3 mb-3">
+              {currentCharacter.profilePicUrl ? (
+                <Image
+                  src={currentCharacter.profilePicUrl}
+                  alt={currentCharacter.name}
+                  width={40}
+                  height={40}
+                  unoptimized
+                  className="h-10 w-10 rounded-full border border-border"
+                />
+              ) : (
+                <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center font-bold">{currentCharacter.name[0]}</div>
+              )}
+              <div>
+                <p className="font-semibold" style={{ color: getClassColor(currentCharacter.className) }}>
+                  {currentCharacter.name}
+                </p>
+                <p className="text-xs text-muted-foreground">{currentCharacter.realm}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{currentCharacter.currentStep}</span>
+                <Badge variant="secondary" className="text-xs">
+                  {stepsCount}/{currentCharacter.totalSteps}
+                </Badge>
+              </div>
+              <Progress value={progress} className="h-1.5" />
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
     </section>
   );
 }

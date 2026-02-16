@@ -1,6 +1,6 @@
 // ─── Character Routes ──────────────────────────────────────────────────
 import { Elysia, t } from "elysia";
-import { eq, and, like, or, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, ilike, or, desc, sql, inArray } from "drizzle-orm";
 import { db } from "../db";
 import {
   characters,
@@ -17,6 +17,130 @@ import {
 import { authPlugin, requireAuth } from "../auth/middleware";
 import { createId } from "@paralleldrive/cuid2";
 import { log } from "../lib/logger";
+import { publishProcessingUpdate, publishUserQueuedUpdate, subscribeProcessingUpdates } from "../lib/sse";
+
+const sseEncoder = new TextEncoder();
+
+async function getProcessingCharacters() {
+  const results = await db
+    .select({
+      id: characters.id,
+      name: characters.name,
+      realm: characters.realm,
+      realmSlug: characters.realmSlug,
+      className: characters.className,
+      specName: characters.specName,
+      faction: characters.faction,
+      profilePicUrl: characters.profilePicUrl,
+      currentStep: processingState.currentStep,
+      lightweightStatus: processingState.lightweightStatus,
+      deepScanStatus: processingState.deepScanStatus,
+      stepsCompleted: processingState.stepsCompleted,
+      totalSteps: processingState.totalSteps,
+    })
+    .from(characters)
+    .innerJoin(processingState, eq(characters.id, processingState.characterId))
+    .where(or(eq(processingState.lightweightStatus, "in_progress"), eq(processingState.deepScanStatus, "in_progress")));
+
+  return results;
+}
+
+async function getFeaturedCharacters() {
+  const results = await db
+    .select({
+      id: characters.id,
+      name: characters.name,
+      realm: characters.realm,
+      realmSlug: characters.realmSlug,
+      region: characters.region,
+      className: characters.className,
+      specName: characters.specName,
+      faction: characters.faction,
+      guild: characters.guild,
+      profilePicUrl: characters.profilePicUrl,
+      bestParse: characterProfiles.bestParse,
+      avgParse: characterProfiles.avgParse,
+      currentMplusScore: characterProfiles.currentMplusScore,
+    })
+    .from(characters)
+    .innerJoin(processingState, eq(characters.id, processingState.characterId))
+    .leftJoin(characterProfiles, eq(characters.id, characterProfiles.characterId))
+    .where(or(eq(processingState.lightweightStatus, "completed"), eq(processingState.deepScanStatus, "completed")))
+    .orderBy(desc(processingState.updatedAt))
+    .limit(12);
+
+  return results;
+}
+
+async function getWaitingCharacters() {
+  const results = await db
+    .select({
+      id: characters.id,
+      name: characters.name,
+      realm: characters.realm,
+      realmSlug: characters.realmSlug,
+      className: characters.className,
+      specName: characters.specName,
+      faction: characters.faction,
+      profilePicUrl: characters.profilePicUrl,
+      queuedAt: characterQueue.createdAt,
+    })
+    .from(characterQueue)
+    .innerJoin(characters, eq(characterQueue.characterId, characters.id))
+    .where(eq(characterQueue.status, "pending"))
+    .orderBy(desc(characterQueue.createdAt))
+    .limit(12);
+
+  return results;
+}
+
+async function getFrontpagePayload() {
+  const [processingCharacters, processedCharacters, waitingCharacters] = await Promise.all([getProcessingCharacters(), getFeaturedCharacters(), getWaitingCharacters()]);
+
+  return {
+    processingCharacters,
+    processedCharacters,
+    waitingCharacters,
+  };
+}
+
+async function getCharacterProfilePayload(realm: string, name: string) {
+  const realmSlug = realm.toLowerCase();
+  const charName = name.toLowerCase();
+
+  const [char] = await db
+    .select()
+    .from(characters)
+    .where(and(eq(characters.realmSlug, realmSlug), sql`LOWER(${characters.name}) = ${charName}`))
+    .limit(1);
+
+  if (!char) {
+    return { error: "Character not found", character: null };
+  }
+
+  const [profile, bossStatsData, aiSummaryData, processingData, parsesData, scoresData, runsData, achievementsData] = await Promise.all([
+    db.select().from(characterProfiles).where(eq(characterProfiles.characterId, char.id)).limit(1),
+    db.select().from(characterBossStats).where(eq(characterBossStats.characterId, char.id)),
+    db.select().from(characterAiSummary).where(eq(characterAiSummary.characterId, char.id)).limit(1),
+    db.select().from(processingState).where(eq(processingState.characterId, char.id)).limit(1),
+    db.select().from(wclParses).where(eq(wclParses.characterId, char.id)).orderBy(desc(wclParses.startTime)),
+    db.select().from(raiderioScores).where(eq(raiderioScores.characterId, char.id)),
+    db.select().from(raiderioRuns).where(eq(raiderioRuns.characterId, char.id)).orderBy(desc(raiderioRuns.completedAt)),
+    db.select().from(blizzardAchievements).where(eq(blizzardAchievements.characterId, char.id)),
+  ]);
+
+  return {
+    character: char,
+    profile: profile[0] ?? null,
+    bossStats: bossStatsData,
+    aiSummary: aiSummaryData[0] ?? null,
+    processing: processingData[0] ?? null,
+    parses: parsesData,
+    mythicPlusScores: scoresData,
+    mythicPlusRuns: runsData,
+    achievements: achievementsData,
+  };
+}
 
 export const characterRoutes = new Elysia({ prefix: "/api/characters" })
   .use(authPlugin)
@@ -34,7 +158,7 @@ export const characterRoutes = new Elysia({ prefix: "/api/characters" })
 
       if (search) {
         const pattern = `%${search}%`;
-        conditions.push(or(like(characters.name, pattern), like(characters.realm, pattern), like(characters.guild, pattern)));
+        conditions.push(or(ilike(characters.name, pattern), ilike(characters.realm, pattern), ilike(characters.guild, pattern)));
       }
 
       if (className) {
@@ -99,98 +223,320 @@ export const characterRoutes = new Elysia({ prefix: "/api/characters" })
     },
   )
 
-  // ── Featured Characters (frontpage) ─────────────────────────────────
+  // ── Featured Characters (frontpage, processed only) ─────────────────
   .get("/featured", async () => {
-    const results = await db
-      .select({
-        id: characters.id,
-        name: characters.name,
-        realm: characters.realm,
-        realmSlug: characters.realmSlug,
-        region: characters.region,
-        className: characters.className,
-        specName: characters.specName,
-        faction: characters.faction,
-        guild: characters.guild,
-        profilePicUrl: characters.profilePicUrl,
-        bestParse: characterProfiles.bestParse,
-        avgParse: characterProfiles.avgParse,
-        currentMplusScore: characterProfiles.currentMplusScore,
-      })
-      .from(characters)
-      .leftJoin(characterProfiles, eq(characters.id, characterProfiles.characterId))
-      .orderBy(sql`RANDOM()`)
-      .limit(12);
+    const results = await getFeaturedCharacters();
 
     return { characters: results };
   })
 
-  // ── Currently Processing ────────────────────────────────────────────
-  .get("/processing", async () => {
-    const results = await db
-      .select({
-        id: characters.id,
-        name: characters.name,
-        realm: characters.realm,
-        realmSlug: characters.realmSlug,
-        className: characters.className,
-        specName: characters.specName,
-        faction: characters.faction,
-        profilePicUrl: characters.profilePicUrl,
-        currentStep: processingState.currentStep,
-        lightweightStatus: processingState.lightweightStatus,
-        deepScanStatus: processingState.deepScanStatus,
-        stepsCompleted: processingState.stepsCompleted,
-        totalSteps: processingState.totalSteps,
-      })
-      .from(characters)
-      .innerJoin(processingState, eq(characters.id, processingState.characterId))
-      .where(or(eq(processingState.lightweightStatus, "in_progress"), eq(processingState.deepScanStatus, "in_progress")));
+  // ── Stream Processed Characters Updates (SSE) ──────────────────────
+  .get("/featured/stream", async ({ request }) => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let closed = false;
+
+        const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
+          if (closed) return;
+          controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        };
+
+        const sendSnapshot = async (event: "snapshot" | "update") => {
+          try {
+            const characters = await getFeaturedCharacters();
+            sendEvent(event, { characters });
+          } catch {
+            sendEvent("error", { error: "Failed to load processed characters" });
+          }
+        };
+
+        const unsubscribe = subscribeProcessingUpdates(() => {
+          void sendSnapshot("update");
+        });
+
+        const heartbeat = setInterval(() => {
+          if (closed) return;
+          controller.enqueue(sseEncoder.encode(": ping\n\n"));
+        }, 15000);
+
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(heartbeat);
+          unsubscribe();
+          try {
+            controller.close();
+          } catch {
+            // stream already closed
+          }
+        };
+
+        request.signal.addEventListener("abort", close, { once: true });
+        void sendSnapshot("snapshot");
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
+  })
+
+  // ── Waiting To Be Processed (frontpage) ─────────────────────────────
+  .get("/waiting", async () => {
+    const results = await getWaitingCharacters();
 
     return { characters: results };
+  })
+
+  // ── Stream Waiting Characters Updates (SSE) ────────────────────────
+  .get("/waiting/stream", async ({ request }) => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let closed = false;
+
+        const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
+          if (closed) return;
+          controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        };
+
+        const sendSnapshot = async (event: "snapshot" | "update") => {
+          try {
+            const characters = await getWaitingCharacters();
+            sendEvent(event, { characters });
+          } catch {
+            sendEvent("error", { error: "Failed to load waiting characters" });
+          }
+        };
+
+        const unsubscribe = subscribeProcessingUpdates(() => {
+          void sendSnapshot("update");
+        });
+
+        const heartbeat = setInterval(() => {
+          if (closed) return;
+          controller.enqueue(sseEncoder.encode(": ping\n\n"));
+        }, 15000);
+
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(heartbeat);
+          unsubscribe();
+          try {
+            controller.close();
+          } catch {
+            // stream already closed
+          }
+        };
+
+        request.signal.addEventListener("abort", close, { once: true });
+        void sendSnapshot("snapshot");
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
+  })
+
+  // ── Stream Frontpage Data Updates (SSE) ────────────────────────────
+  .get("/frontpage/stream", async ({ request }) => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let closed = false;
+
+        const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
+          if (closed) return;
+          controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        };
+
+        const sendSnapshot = async (event: "snapshot" | "update") => {
+          try {
+            const payload = await getFrontpagePayload();
+            sendEvent(event, payload);
+          } catch {
+            sendEvent("error", { error: "Failed to load frontpage state" });
+          }
+        };
+
+        const unsubscribe = subscribeProcessingUpdates(() => {
+          void sendSnapshot("update");
+        });
+
+        const heartbeat = setInterval(() => {
+          if (closed) return;
+          controller.enqueue(sseEncoder.encode(": ping\n\n"));
+        }, 15000);
+
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(heartbeat);
+          unsubscribe();
+          try {
+            controller.close();
+          } catch {
+            // stream already closed
+          }
+        };
+
+        request.signal.addEventListener("abort", close, { once: true });
+        void sendSnapshot("snapshot");
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
+  })
+
+  // ── Currently Processing ────────────────────────────────────────────
+  .get("/processing", async () => {
+    const results = await getProcessingCharacters();
+    return { characters: results };
+  })
+
+  // ── Stream Processing Updates (SSE) ────────────────────────────────
+  .get("/processing/stream", async ({ request }) => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let closed = false;
+
+        const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
+          if (closed) return;
+          controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        };
+
+        const sendSnapshot = async (event: "snapshot" | "update") => {
+          try {
+            const characters = await getProcessingCharacters();
+            sendEvent(event, { characters });
+          } catch {
+            sendEvent("error", { error: "Failed to load processing state" });
+          }
+        };
+
+        const unsubscribe = subscribeProcessingUpdates(() => {
+          void sendSnapshot("update");
+        });
+
+        const heartbeat = setInterval(() => {
+          if (closed) return;
+          controller.enqueue(sseEncoder.encode(": ping\n\n"));
+        }, 15000);
+
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(heartbeat);
+          unsubscribe();
+          try {
+            controller.close();
+          } catch {
+            // stream already closed
+          }
+        };
+
+        request.signal.addEventListener("abort", close, { once: true });
+        void sendSnapshot("snapshot");
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
   })
 
   // ── Single Character Profile ────────────────────────────────────────
   .get(
     "/:realm/:name",
     async ({ params }) => {
-      const realmSlug = params.realm.toLowerCase();
-      const charName = params.name.toLowerCase();
+      return getCharacterProfilePayload(params.realm, params.name);
+    },
+    {
+      params: t.Object({
+        realm: t.String(),
+        name: t.String(),
+      }),
+    },
+  )
 
-      // Find the character
-      const [char] = await db
-        .select()
-        .from(characters)
-        .where(and(eq(characters.realmSlug, realmSlug), sql`LOWER(${characters.name}) = ${charName}`))
-        .limit(1);
+  // ── Stream Single Character Updates (SSE) ──────────────────────────
+  .get(
+    "/:realm/:name/stream",
+    async ({ params, request }) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          let closed = false;
 
-      if (!char) {
-        return { error: "Character not found", character: null };
-      }
+          const sendEvent = (event: "snapshot" | "update" | "error", payload: unknown) => {
+            if (closed) return;
+            controller.enqueue(sseEncoder.encode(`event: ${event}\n`));
+            controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+          };
 
-      // Fetch all related data in parallel
-      const [profile, bossStatsData, aiSummaryData, processingData, parsesData, scoresData, runsData, achievementsData] = await Promise.all([
-        db.select().from(characterProfiles).where(eq(characterProfiles.characterId, char.id)).limit(1),
-        db.select().from(characterBossStats).where(eq(characterBossStats.characterId, char.id)),
-        db.select().from(characterAiSummary).where(eq(characterAiSummary.characterId, char.id)).limit(1),
-        db.select().from(processingState).where(eq(processingState.characterId, char.id)).limit(1),
-        db.select().from(wclParses).where(eq(wclParses.characterId, char.id)).orderBy(desc(wclParses.startTime)),
-        db.select().from(raiderioScores).where(eq(raiderioScores.characterId, char.id)),
-        db.select().from(raiderioRuns).where(eq(raiderioRuns.characterId, char.id)).orderBy(desc(raiderioRuns.completedAt)),
-        db.select().from(blizzardAchievements).where(eq(blizzardAchievements.characterId, char.id)),
-      ]);
+          const sendSnapshot = async (event: "snapshot" | "update") => {
+            try {
+              const payload = await getCharacterProfilePayload(params.realm, params.name);
+              sendEvent(event, payload);
+            } catch {
+              sendEvent("error", { error: "Failed to load character state" });
+            }
+          };
 
-      return {
-        character: char,
-        profile: profile[0] ?? null,
-        bossStats: bossStatsData,
-        aiSummary: aiSummaryData[0] ?? null,
-        processing: processingData[0] ?? null,
-        parses: parsesData,
-        mythicPlusScores: scoresData,
-        mythicPlusRuns: runsData,
-        achievements: achievementsData,
-      };
+          const unsubscribe = subscribeProcessingUpdates(() => {
+            void sendSnapshot("update");
+          });
+
+          const heartbeat = setInterval(() => {
+            if (closed) return;
+            controller.enqueue(sseEncoder.encode(": ping\n\n"));
+          }, 15000);
+
+          const close = () => {
+            if (closed) return;
+            closed = true;
+            clearInterval(heartbeat);
+            unsubscribe();
+            try {
+              controller.close();
+            } catch {
+              // stream already closed
+            }
+          };
+
+          request.signal.addEventListener("abort", close, { once: true });
+          void sendSnapshot("snapshot");
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        },
+      });
     },
     {
       params: t.Object({
@@ -291,6 +637,9 @@ export const characterRoutes = new Elysia({ prefix: "/api/characters" })
         log.error({ err: error }, "Failed to add character to queue");
       }
 
+      publishProcessingUpdate();
+      publishUserQueuedUpdate(user.id);
+
       return {
         message: "Character queued for processing",
         characterId: existing.id,
@@ -369,6 +718,9 @@ export const characterRoutes = new Elysia({ prefix: "/api/characters" })
         } catch (error) {
           log.error({ err: error }, "Failed to add character to queue");
         }
+
+        publishProcessingUpdate();
+        publishUserQueuedUpdate(user.id);
 
         results.push({ characterId: existing.id, name: charName });
       }

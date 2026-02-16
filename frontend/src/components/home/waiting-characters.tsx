@@ -6,38 +6,33 @@ import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getClassColor, getParseColor } from "@/lib/wow-constants";
+import { getClassColor } from "@/lib/wow-constants";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
-interface FeaturedCharacter {
+interface WaitingCharacter {
   id: string;
   name: string;
   realm: string;
   realmSlug: string;
-  region: string;
   className: string | null;
   specName: string | null;
   faction: string | null;
-  guild: string | null;
   profilePicUrl: string | null;
-  bestParse: number | null;
-  avgParse: number | null;
-  currentMplusScore: number | null;
 }
 
-export function FeaturedCharacters() {
-  const [characters, setCharacters] = useState<FeaturedCharacter[]>([]);
+export function WaitingCharacters() {
+  const [characters, setCharacters] = useState<WaitingCharacter[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const stream = new EventSource(`${API_URL}/api/characters/featured/stream`, {
+    const stream = new EventSource(`${API_URL}/api/characters/waiting/stream`, {
       withCredentials: true,
     });
 
     const handleData = (event: MessageEvent) => {
       try {
-        const payload = JSON.parse(event.data) as { characters?: FeaturedCharacter[] };
+        const payload = JSON.parse(event.data) as { characters?: WaitingCharacter[] };
         if (Array.isArray(payload.characters)) {
           setCharacters(payload.characters);
           setLoading(false);
@@ -64,14 +59,14 @@ export function FeaturedCharacters() {
   if (loading) {
     return (
       <section>
-        <h2 className="text-2xl font-bold mb-6">Processed Characters</h2>
+        <h2 className="text-2xl font-bold mb-6">Waiting To Be Processed</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i}>
               <CardContent className="p-4">
                 <Skeleton className="h-12 w-12 rounded-full mb-3" />
                 <Skeleton className="h-4 w-24 mb-2" />
-                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-3 w-20" />
               </CardContent>
             </Card>
           ))}
@@ -81,19 +76,12 @@ export function FeaturedCharacters() {
   }
 
   if (characters.length === 0) {
-    return (
-      <section>
-        <h2 className="text-2xl font-bold mb-6">Processed Characters</h2>
-        <Card>
-          <CardContent className="p-8 text-center text-muted-foreground">No processed characters yet. Queue a character to get started!</CardContent>
-        </Card>
-      </section>
-    );
+    return null;
   }
 
   return (
     <section>
-      <h2 className="text-2xl font-bold mb-6">Processed Characters</h2>
+      <h2 className="text-2xl font-bold mb-6">Waiting To Be Processed</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {characters.map((char) => (
           <Link key={char.id} href={`/character/${char.realmSlug}/${char.name.toLowerCase()}`}>
@@ -109,21 +97,11 @@ export function FeaturedCharacters() {
                     <p className="font-semibold truncate" style={{ color: getClassColor(char.className) }}>
                       {char.name}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {char.realm}
-                      {char.guild && ` · ${char.guild}`}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      {char.bestParse !== null && (
-                        <Badge variant="outline" className="text-xs" style={{ color: getParseColor(char.bestParse), borderColor: getParseColor(char.bestParse) }}>
-                          Best: {char.bestParse.toFixed(0)}
-                        </Badge>
-                      )}
-                      {char.currentMplusScore !== null && char.currentMplusScore > 0 && (
-                        <Badge variant="outline" className="text-xs">
-                          M+ {char.currentMplusScore.toFixed(0)}
-                        </Badge>
-                      )}
+                    <p className="text-xs text-muted-foreground truncate">{char.realm}</p>
+                    <div className="mt-1.5">
+                      <Badge variant="outline" className="text-xs">
+                        Queued
+                      </Badge>
                     </div>
                   </div>
                 </div>

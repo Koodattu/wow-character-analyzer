@@ -12,8 +12,14 @@ import { computeCharacterProfile, computeBossStats } from "../processing/profile
 import { generateAiSummary } from "../processing/ai-summary";
 import { rateLimitManager } from "../services/rate-limiter";
 import { log as rootLog } from "../lib/logger";
+import { publishProcessingUpdate, publishUserQueuedUpdate } from "../lib/sse";
 
 const log = rootLog.child({ module: "queue" });
+
+function broadcastQueueStateChange() {
+  publishProcessingUpdate();
+  publishUserQueuedUpdate();
+}
 // ─── Queue Configuration ───────────────────────────────────────────────
 
 const lightweightQueue = new Queue("lightweight-scan", {
@@ -41,6 +47,8 @@ async function updateStep(characterId: string, step: string, status: "in_progres
       lightweightStatus: status === "failed" ? "failed" : (current?.lightweightStatus ?? "in_progress"),
     })
     .where(eq(processingState.characterId, characterId));
+
+  broadcastQueueStateChange();
 }
 
 // ─── Tracked Boss Encounter IDs ────────────────────────────────────────
@@ -83,6 +91,7 @@ const lightweightWorker = new Worker(
     try {
       // Update status
       await db.update(processingState).set({ lightweightStatus: "in_progress", currentStep: "Starting..." }).where(eq(processingState.characterId, characterId));
+      broadcastQueueStateChange();
 
       await db
         .update(processingState)
@@ -90,8 +99,10 @@ const lightweightWorker = new Worker(
           errorMessage: null,
         })
         .where(eq(processingState.characterId, characterId));
+      broadcastQueueStateChange();
 
       await db.update(characterQueue).set({ status: "processing" }).where(eq(characterQueue.characterId, characterId));
+      broadcastQueueStateChange();
 
       // ── Step 1: Blizzard Profile ───────────────────────────────
       await updateStep(characterId, "Fetching Blizzard profile");
@@ -245,8 +256,10 @@ const lightweightWorker = new Worker(
           errorMessage: null,
         })
         .where(eq(processingState.characterId, characterId));
+      broadcastQueueStateChange();
 
       await db.update(characterQueue).set({ status: "completed" }).where(eq(characterQueue.characterId, characterId));
+      broadcastQueueStateChange();
 
       log.info({ characterName, realmSlug }, "Lightweight scan completed");
 
@@ -268,6 +281,7 @@ const lightweightWorker = new Worker(
           currentStep: "Failed",
         })
         .where(eq(processingState.characterId, characterId));
+      broadcastQueueStateChange();
 
       await db
         .update(characterQueue)
@@ -276,6 +290,7 @@ const lightweightWorker = new Worker(
           errorMessage: error instanceof Error ? error.message : "Unknown error",
         })
         .where(eq(characterQueue.characterId, characterId));
+      broadcastQueueStateChange();
 
       throw error;
     }
@@ -308,6 +323,7 @@ const deepScanWorker = new Worker(
           errorMessage: null,
         })
         .where(eq(processingState.characterId, characterId));
+      broadcastQueueStateChange();
 
       // Deep scan fetches detailed fight events (deaths, casts)
       // For now, mark as completed - this will be expanded
@@ -322,6 +338,7 @@ const deepScanWorker = new Worker(
           errorMessage: null,
         })
         .where(eq(processingState.characterId, characterId));
+      broadcastQueueStateChange();
 
       // Recompute with deeper data
       await computeCharacterProfile(characterId);
@@ -341,6 +358,7 @@ const deepScanWorker = new Worker(
           errorMessage: error instanceof Error ? error.message : "Unknown error",
         })
         .where(eq(processingState.characterId, characterId));
+      broadcastQueueStateChange();
 
       throw error;
     }
