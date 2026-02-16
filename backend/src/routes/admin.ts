@@ -10,6 +10,31 @@ import { log } from "../lib/logger";
 export const adminRoutes = new Elysia({ prefix: "/api/admin" })
   .use(requireAdmin)
 
+  // ── Character List ─────────────────────────────────────────────────
+  .get("/characters", async () => {
+    const rows = await db
+      .select({
+        id: characters.id,
+        name: characters.name,
+        realm: characters.realm,
+        realmSlug: characters.realmSlug,
+        region: characters.region,
+        className: characters.className,
+        specName: characters.specName,
+        lastFetchedAt: characters.lastFetchedAt,
+        updatedAt: characters.updatedAt,
+        lightweightStatus: processingState.lightweightStatus,
+        deepScanStatus: processingState.deepScanStatus,
+        currentStep: processingState.currentStep,
+      })
+      .from(characters)
+      .leftJoin(processingState, eq(processingState.characterId, characters.id))
+      .orderBy(desc(characters.updatedAt))
+      .limit(100);
+
+    return { characters: rows };
+  })
+
   // ── Queue Overview ──────────────────────────────────────────────────
   .get("/queue", async () => {
     const [pendingCount] = await db

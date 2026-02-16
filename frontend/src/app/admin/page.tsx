@@ -4,10 +4,12 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertTriangle, Clock, Database, Loader2, RefreshCw, Settings, Zap, Activity, CheckCircle, XCircle } from "lucide-react";
 
@@ -43,14 +45,30 @@ interface RateLimitStatus {
   raiderio: { remaining: number; limit: number; resetAt: string | null };
 }
 
+interface AdminCharacter {
+  id: string;
+  name: string;
+  realm: string;
+  region: string;
+  className: string | null;
+  specName: string | null;
+  lastFetchedAt: string | null;
+  lightweightStatus: string | null;
+  deepScanStatus: string | null;
+  currentStep: string | null;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
 
   const [queueData, setQueueData] = useState<QueueOverview | null>(null);
   const [rateLimits, setRateLimits] = useState<RateLimitStatus | null>(null);
+  const [adminCharacters, setAdminCharacters] = useState<AdminCharacter[]>([]);
   const [loading, setLoading] = useState(true);
+  const [charactersLoading, setCharactersLoading] = useState(true);
   const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessingCharacterId, setReprocessingCharacterId] = useState<string | null>(null);
   const [reprocessMsg, setReprocessMsg] = useState<string | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -64,7 +82,7 @@ export default function AdminPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [queueRes, rateRes] = await Promise.all([api.api.admin.queue.get(), api.api.admin["rate-limits"].get()]);
+      const [queueRes, rateRes, charactersRes] = await Promise.all([api.api.admin.queue.get(), api.api.admin["rate-limits"].get(), api.api.admin.characters.get()]);
 
       if (queueRes.data) {
         setQueueData(queueRes.data as unknown as QueueOverview);
@@ -73,10 +91,15 @@ export default function AdminPage() {
         const raw = rateRes.data as unknown as { rateLimits: RateLimitStatus } | RateLimitStatus;
         setRateLimits("rateLimits" in raw ? raw.rateLimits : raw);
       }
+      if (charactersRes.data) {
+        const raw = charactersRes.data as unknown as { characters: AdminCharacter[] };
+        setAdminCharacters(raw.characters ?? []);
+      }
     } catch {
       // API error
     } finally {
       setLoading(false);
+      setCharactersLoading(false);
     }
   }, []);
 
@@ -108,6 +131,28 @@ export default function AdminPage() {
     } finally {
       setReprocessing(false);
     }
+  };
+
+  const handleReprocessCharacter = async (character: AdminCharacter) => {
+    if (!confirm(`Reprocess ${character.name} (${character.realm})?`)) return;
+    setReprocessingCharacterId(character.id);
+    setReprocessMsg(null);
+    try {
+      await api.api.admin.reprocess.post({ characterId: character.id });
+      setReprocessMsg(`Reprocessing started for ${character.name}-${character.realm}`);
+      await fetchData();
+    } catch {
+      setReprocessMsg(`Failed to trigger reprocessing for ${character.name}-${character.realm}`);
+    } finally {
+      setReprocessingCharacterId(null);
+    }
+  };
+
+  const statusVariant = (status: string | null | undefined): "default" | "secondary" | "destructive" | "outline" => {
+    if (status === "completed") return "default";
+    if (status === "in_progress" || status === "processing") return "secondary";
+    if (status === "failed") return "destructive";
+    return "outline";
   };
 
   if (authLoading) {
@@ -300,6 +345,67 @@ export default function AdminPage() {
 
         {/* Tools Tab */}
         <TabsContent value="tools" className="mt-6 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Character Reprocessing
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">Reprocess a single character from the latest 100 tracked characters.</p>
+              {charactersLoading ? (
+                <Skeleton className="h-56 w-full" />
+              ) : adminCharacters.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No characters found.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Character</TableHead>
+                      <TableHead>Spec</TableHead>
+                      <TableHead>Lightweight</TableHead>
+                      <TableHead>Deep Scan</TableHead>
+                      <TableHead>Last Fetched</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {adminCharacters.map((character) => (
+                      <TableRow key={character.id}>
+                        <TableCell>
+                          <div className="font-medium">{character.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {character.realm} · {character.region.toUpperCase()}
+                          </div>
+                        </TableCell>
+                        <TableCell>{character.specName ?? character.className ?? "—"}</TableCell>
+                        <TableCell>
+                          <Badge variant={statusVariant(character.lightweightStatus)}>{character.lightweightStatus ?? "unknown"}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={statusVariant(character.deepScanStatus)}>{character.deepScanStatus ?? "unknown"}</Badge>
+                        </TableCell>
+                        <TableCell>{character.lastFetchedAt ? new Date(character.lastFetchedAt).toLocaleString() : "—"}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleReprocessCharacter(character)}
+                            disabled={reprocessingCharacterId === character.id || reprocessing}
+                          >
+                            {reprocessingCharacterId === character.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            <span className="ml-2">Reprocess</span>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
