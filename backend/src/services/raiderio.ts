@@ -129,6 +129,78 @@ export async function fetchRaiderioCharacter(characterName: string, realmSlug: s
   };
 }
 
+// ─── Raid Static Data (Start/End Dates) ────────────────────────────────
+
+export interface RaiderioRaidStaticData {
+  id: number;
+  slug: string;
+  name: string;
+  short_name: string;
+  icon: string | null;
+  starts: { us?: string; eu?: string; tw?: string; kr?: string; cn?: string };
+  ends: { us?: string; eu?: string; tw?: string; kr?: string; cn?: string };
+  encounters: Array<{ id: number; slug: string; name: string }>;
+}
+
+/**
+ * Fetch raid static data (start/end dates, encounters) for a specific expansion.
+ * Used during raid data sync to get per-region dates.
+ */
+export async function fetchRaidStaticData(expansionId: number): Promise<RaiderioRaidStaticData[]> {
+  const url = `${RAIDERIO_BASE}/raiding/static-data?expansion_id=${expansionId}`;
+  const data = await raiderioFetch(url);
+
+  if (!data?.raids) {
+    log.warn({ expansionId }, "No raid data returned from Raider.IO for expansion");
+    return [];
+  }
+
+  return data.raids.map((r: any) => ({
+    id: r.id,
+    slug: r.slug,
+    name: r.name,
+    short_name: r.short_name,
+    icon: r.icon ?? null,
+    starts: r.starts ?? {},
+    ends: r.ends ?? {},
+    encounters: (r.encounters ?? []).map((e: any) => ({
+      id: e.id,
+      slug: e.slug,
+      name: e.name,
+    })),
+  }));
+}
+
+/**
+ * Fetch raid dates for all tracked expansions.
+ * Returns a Map keyed by both slug (lowercase) and name (lowercase)
+ * for flexible matching against WCL zone names.
+ */
+export async function fetchAllRaidDates(expansionIds: number[]): Promise<Map<string, RaiderioRaidStaticData>> {
+  const map = new Map<string, RaiderioRaidStaticData>();
+
+  for (const expansionId of expansionIds) {
+    try {
+      const raids = await fetchRaidStaticData(expansionId);
+      for (const raid of raids) {
+        // Key by both slug and name for flexible matching
+        map.set(raid.slug.toLowerCase(), raid);
+        map.set(raid.name.toLowerCase(), raid);
+      }
+      log.debug({ expansionId, raidCount: raids.length }, "Fetched Raider.IO raid dates for expansion");
+    } catch (error) {
+      // Non-fatal: continue with other expansions
+      log.warn({ err: error, expansionId }, "Failed to fetch Raider.IO raid dates for expansion");
+    }
+
+    // Be polite: 500ms between expansion fetches
+    await sleep(500);
+  }
+
+  log.info({ totalEntries: map.size, expansionCount: expansionIds.length }, "Raider.IO raid date fetch complete");
+  return map;
+}
+
 // ─── Fetch Historical Scores ───────────────────────────────────────────
 export async function fetchRaiderioHistoricalScores(
   characterName: string,

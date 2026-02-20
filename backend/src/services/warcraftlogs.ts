@@ -301,6 +301,97 @@ export async function fetchFightCasts(reportCode: string, fightId: number, abili
   }));
 }
 
+// ─── Zone Queries (Raid Sync) ──────────────────────────────────────────
+
+export interface WclZoneSummary {
+  id: number;
+  name: string;
+}
+
+let zonesCache: { data: WclZoneSummary[]; fetchedAt: number } | null = null;
+const ZONES_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Fetch all available WCL raid zones.
+ * Cached in-memory for 24 hours since zones rarely change.
+ */
+export async function fetchWclZones(): Promise<WclZoneSummary[]> {
+  if (zonesCache && Date.now() - zonesCache.fetchedAt < ZONES_CACHE_TTL) {
+    return zonesCache.data;
+  }
+
+  const query = `
+    query {
+      rateLimitData { limitPerHour pointsSpentThisHour pointsResetIn }
+      worldData {
+        zones { id name }
+      }
+    }
+  `;
+
+  const data = await wclQuery(query);
+  const zones: WclZoneSummary[] = (data?.worldData?.zones ?? []).map((z: any) => ({
+    id: z.id,
+    name: z.name,
+  }));
+
+  zonesCache = { data: zones, fetchedAt: Date.now() };
+  log.info({ zoneCount: zones.length }, "Fetched WCL zones");
+  return zones;
+}
+
+export interface WclZoneDetail {
+  id: number;
+  name: string;
+  frozen: boolean;
+  expansion: { id: number; name: string } | null;
+  encounters: Array<{ id: number; name: string; journalID: number }>;
+  partitions: Array<{ id: number; name: string; default: boolean }>;
+}
+
+/**
+ * Fetch full detail for a specific WCL zone: encounters, partitions, expansion info.
+ * Not cached in-memory — the api_cache DB table handles persistence.
+ */
+export async function fetchWclZoneDetail(zoneId: number): Promise<WclZoneDetail | null> {
+  const query = `
+    query ($zoneId: Int!) {
+      rateLimitData { limitPerHour pointsSpentThisHour pointsResetIn }
+      worldData {
+        zone(id: $zoneId) {
+          id
+          name
+          frozen
+          expansion { id name }
+          encounters { id name journalID }
+          partitions { id name default }
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await wclQuery(query, { zoneId });
+    const zone = data?.worldData?.zone;
+    if (!zone) {
+      log.warn({ zoneId }, "WCL zone not found");
+      return null;
+    }
+
+    return {
+      id: zone.id,
+      name: zone.name,
+      frozen: zone.frozen ?? false,
+      expansion: zone.expansion ? { id: zone.expansion.id, name: zone.expansion.name } : null,
+      encounters: (zone.encounters ?? []).map((e: any) => ({ id: e.id, name: e.name, journalID: e.journalID ?? 0 })),
+      partitions: (zone.partitions ?? []).map((p: any) => ({ id: p.id, name: p.name, default: p.default ?? false })),
+    };
+  } catch (error) {
+    log.error({ err: error, zoneId }, "Failed to fetch WCL zone detail");
+    return null;
+  }
+}
+
 // ─── Character Existence Check ─────────────────────────────────────────
 export async function checkCharacterExists(characterName: string, serverSlug: string, serverRegion: string): Promise<boolean> {
   const query = `

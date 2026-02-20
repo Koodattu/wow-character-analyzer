@@ -165,6 +165,139 @@ export function getAchievementType(achievementId: number): "cutting_edge" | "ahe
   return null;
 }
 
+// ─── Achievement Index (for Icon Resolution) ──────────────────────────
+
+interface AchievementIndexEntry {
+  id: number;
+  name: string;
+}
+
+let achievementIndexCache: { data: AchievementIndexEntry[]; fetchedAt: number } | null = null;
+const ACHIEVEMENT_INDEX_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Fetch all WoW achievements from the Blizzard static data API.
+ * Cached in-memory for 24 hours. Only used during raid sync for icon resolution.
+ */
+export async function fetchAchievementIndex(): Promise<AchievementIndexEntry[]> {
+  if (achievementIndexCache && Date.now() - achievementIndexCache.fetchedAt < ACHIEVEMENT_INDEX_TTL) {
+    return achievementIndexCache.data;
+  }
+
+  const url = `https://us.api.blizzard.com/data/wow/achievement/index?namespace=static-us&locale=en_US`;
+  const data = await blizzardFetch(url);
+  if (!data?.achievements) {
+    log.warn("No achievements returned from Blizzard achievement index");
+    return [];
+  }
+
+  const entries: AchievementIndexEntry[] = data.achievements.map((a: any) => ({
+    id: a.id,
+    name: a.name ?? "",
+  }));
+
+  achievementIndexCache = { data: entries, fetchedAt: Date.now() };
+  log.info({ count: entries.length }, "Fetched Blizzard achievement index");
+  return entries;
+}
+
+/**
+ * Fetch the media (icon CDN URL) for a specific achievement.
+ * Returns the CDN URL string or null on failure.
+ */
+export async function fetchAchievementMedia(achievementId: number): Promise<string | null> {
+  const url = `https://us.api.blizzard.com/data/wow/media/achievement/${achievementId}?namespace=static-us&locale=en_US`;
+  const data = await blizzardFetch(url);
+  if (!data?.assets?.length) return null;
+
+  // Find the first icon asset
+  const iconAsset = data.assets.find((a: any) => a.key === "icon");
+  return iconAsset?.value ?? data.assets[0]?.value ?? null;
+}
+
+/**
+ * Build a name-to-id Map from the achievement index for fast lookups.
+ */
+export function buildAchievementLookup(index: AchievementIndexEntry[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const entry of index) {
+    map.set(entry.name.toLowerCase(), entry.id);
+  }
+  return map;
+}
+
+/**
+ * Find a Blizzard CDN icon URL for a boss by searching achievement names.
+ *
+ * Search order (first match wins):
+ *   1. Exact: "Mythic: {bossName}"
+ *   2. Partial: achievement name contains bossName
+ *   3. First-part-before-comma: for bosses like "Mug'Zee, Heads of Security" → search "Mug'Zee"
+ *
+ * Returns the CDN URL or null if no match found.
+ */
+export async function findBossIconUrl(bossName: string, achievementIndex: AchievementIndexEntry[]): Promise<string | null> {
+  const lowerBoss = bossName.toLowerCase();
+
+  // Strategy 1: Exact "Mythic: <bossName>"
+  const mythicExact = achievementIndex.find((a) => a.name.toLowerCase() === `mythic: ${lowerBoss}`);
+  if (mythicExact) {
+    return fetchAchievementMedia(mythicExact.id);
+  }
+
+  // Strategy 2: Achievement name contains boss name
+  const partialMatch = achievementIndex.find((a) => a.name.toLowerCase().includes(lowerBoss));
+  if (partialMatch) {
+    return fetchAchievementMedia(partialMatch.id);
+  }
+
+  // Strategy 3: First part before comma
+  if (bossName.includes(",")) {
+    const firstPart = bossName.split(",")[0].trim().toLowerCase();
+    const commaMatch = achievementIndex.find((a) => a.name.toLowerCase().includes(firstPart));
+    if (commaMatch) {
+      return fetchAchievementMedia(commaMatch.id);
+    }
+  }
+
+  // Strategy 4: First word only (for very long boss names)
+  const firstWord = lowerBoss.split(/\s+/)[0];
+  if (firstWord && firstWord !== lowerBoss && firstWord.length > 3) {
+    const wordMatch = achievementIndex.find((a) => a.name.toLowerCase().includes(`mythic: ${firstWord}`) || a.name.toLowerCase().includes(firstWord));
+    if (wordMatch) {
+      return fetchAchievementMedia(wordMatch.id);
+    }
+  }
+
+  log.debug({ bossName }, "No achievement icon match found for boss");
+  return null;
+}
+
+/**
+ * Find a Blizzard CDN icon URL for a raid by searching achievement names.
+ * Searches for raid-related achievements (e.g., "Ahead of the Curve: <raidName>").
+ */
+export async function findRaidIconUrl(raidName: string, achievementIndex: AchievementIndexEntry[]): Promise<string | null> {
+  const lowerRaid = raidName.toLowerCase();
+
+  // Strategy 1: AotC or CE achievement mentioning the raid
+  const aotcMatch = achievementIndex.find(
+    (a) => (a.name.toLowerCase().includes("ahead of the curve") || a.name.toLowerCase().includes("cutting edge")) && a.name.toLowerCase().includes(lowerRaid),
+  );
+  if (aotcMatch) {
+    return fetchAchievementMedia(aotcMatch.id);
+  }
+
+  // Strategy 2: Any achievement containing the raid name
+  const partialMatch = achievementIndex.find((a) => a.name.toLowerCase().includes(lowerRaid));
+  if (partialMatch) {
+    return fetchAchievementMedia(partialMatch.id);
+  }
+
+  log.debug({ raidName }, "No achievement icon match found for raid");
+  return null;
+}
+
 // ─── User Character List (requires user OAuth token) ───────────────────
 export interface BlizzardWowCharacter {
   id: number;

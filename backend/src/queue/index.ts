@@ -2,9 +2,9 @@
 // Embedded job queue with SQLite persistence — no Redis required
 import { Queue, Worker } from "bunqueue/client";
 import type { Job } from "bunqueue/client";
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import { db } from "../db";
-import { characters, processingState, characterQueue, wclParses, raiderioScores, raiderioRuns, blizzardAchievements } from "../db/schema";
+import { characters, processingState, characterQueue, wclParses, raiderioScores, raiderioRuns, blizzardAchievements, bosses, raids, seasons } from "../db/schema";
 import { fetchCharacterProfile, fetchCharacterMedia, fetchCharacterAchievements, getAchievementType } from "../services/blizzard";
 import { fetchEncounterRankings, type WclEncounterRanking } from "../services/warcraftlogs";
 import { fetchRaiderioCharacter, fetchRaiderioHistoricalScores } from "../services/raiderio";
@@ -52,28 +52,27 @@ async function updateStep(characterId: string, step: string, status: "in_progres
 }
 
 // ─── Tracked Boss Encounter IDs ────────────────────────────────────────
-// These are WCL encounter IDs for bosses we track
-// TWW Season 2 - Liberation of Undermine
-const TRACKED_ENCOUNTERS = [
-  // Liberation of Undermine (TWW S2)
-  3009, // Vexie and the Geargrinders
-  3010, // Cauldron of Carnage
-  3011, // Rik Reverb
-  3012, // Stix Bunkjunker
-  3013, // The Sprocketmonger
-  3014, // Crowd Pummeler 9-60
-  3015, // Mug'Zee, Heads of Security
-  3016, // Gallagio
-  // Nerub-ar Palace (TWW S1)
-  2902, // Ulgrax the Devourer
-  2917, // The Bloodbound Horror
-  2898, // Sikran
-  2918, // Rasha'nan
-  2919, // Broodtwister Ovi'nax
-  2920, // Nexus-Princess Ky'veza
-  2921, // The Silken Court
-  2922, // Queen Ansurek
-];
+// Dynamically loaded from the DB (populated by raid-sync service).
+// Falls back to empty array if sync hasn't run yet.
+
+async function getTrackedEncounterIds(): Promise<number[]> {
+  const rows = await db
+    .select({ wclEncounterId: bosses.wclEncounterId })
+    .from(bosses)
+    .innerJoin(raids, eq(bosses.raidId, raids.id))
+    .innerJoin(seasons, eq(raids.seasonId, seasons.id))
+    .where(isNotNull(bosses.wclEncounterId));
+
+  const ids = rows.map((r) => r.wclEncounterId).filter((id): id is number => id !== null);
+
+  if (ids.length === 0) {
+    log.warn("No tracked encounter IDs found in DB — has raid sync run?");
+  } else {
+    log.debug({ count: ids.length }, "Loaded tracked encounter IDs from DB");
+  }
+
+  return ids;
+}
 
 // ─── Lightweight Scan Worker ───────────────────────────────────────────
 const lightweightWorker = new Worker(
@@ -153,7 +152,9 @@ const lightweightWorker = new Worker(
       // ── Step 3: WCL Rankings ───────────────────────────────────────
       await updateStep(characterId, "Fetching WarcraftLogs rankings");
 
-      for (const encounterId of TRACKED_ENCOUNTERS) {
+      const trackedEncounterIds = await getTrackedEncounterIds();
+
+      for (const encounterId of trackedEncounterIds) {
         if (!rateLimitManager.canMakeRequest("wcl")) {
           log.warn("WCL rate limit reached, waiting");
           await new Promise((resolve) => setTimeout(resolve, 5000));

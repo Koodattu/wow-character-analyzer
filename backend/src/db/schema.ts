@@ -52,11 +52,24 @@ export const oauthAccounts = pgTable(
   (table) => [uniqueIndex("oauth_provider_account_idx").on(table.provider, table.providerAccountId)],
 );
 
+// ─── API Cache Layer ─────────────────────────────────────────────────────
+// Stores raw API responses so data survives restarts without refetching.
+// The sync service checks here before making API calls.
+
+export const apiCache = pgTable("api_cache", {
+  key: text("key").primaryKey(), // e.g. "wcl:zone:39", "rio:raids:10"
+  data: jsonb("data").notNull(), // raw API response JSON
+  cachedAt: timestamp("cached_at", { withTimezone: true }).notNull().defaultNow(),
+  ttlSeconds: integer("ttl_seconds").notNull().default(86400), // 24h default
+});
+
 // ─── Config Layer ────────────────────────────────────────────────────────
 export const expansions = pgTable("expansions", {
   id: id(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  wclExpansionId: integer("wcl_expansion_id"),
+  rioExpansionId: integer("rio_expansion_id"),
   logoUrl: text("logo_url"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: createdAt(),
@@ -73,31 +86,51 @@ export const seasons = pgTable("seasons", {
   createdAt: createdAt(),
 });
 
-export const raids = pgTable("raids", {
-  id: id(),
-  seasonId: text("season_id")
-    .notNull()
-    .references(() => seasons.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  iconUrl: text("icon_url"),
-  wclZoneId: integer("wcl_zone_id"),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: createdAt(),
-});
+/** Region date map shape for raid start/end dates from Raider.IO */
+export type RegionDates = {
+  us?: string;
+  eu?: string;
+  tw?: string;
+  kr?: string;
+  cn?: string;
+};
 
-export const bosses = pgTable("bosses", {
-  id: id(),
-  raidId: text("raid_id")
-    .notNull()
-    .references(() => raids.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  slug: text("slug").notNull(),
-  iconUrl: text("icon_url"),
-  wclEncounterId: integer("wcl_encounter_id"),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: createdAt(),
-});
+export const raids = pgTable(
+  "raids",
+  {
+    id: id(),
+    seasonId: text("season_id")
+      .notNull()
+      .references(() => seasons.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull().unique(),
+    iconUrl: text("icon_url"),
+    wclZoneId: integer("wcl_zone_id"),
+    raiderioSlug: text("raiderio_slug"),
+    regionStartDates: jsonb("region_start_dates").$type<RegionDates>(),
+    regionEndDates: jsonb("region_end_dates").$type<RegionDates>(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (table) => [uniqueIndex("raid_wcl_zone_id_idx").on(table.wclZoneId)],
+);
+
+export const bosses = pgTable(
+  "bosses",
+  {
+    id: id(),
+    raidId: text("raid_id")
+      .notNull()
+      .references(() => raids.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    iconUrl: text("icon_url"),
+    wclEncounterId: integer("wcl_encounter_id"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (table) => [uniqueIndex("boss_raid_encounter_idx").on(table.raidId, table.wclEncounterId), uniqueIndex("boss_raid_slug_idx").on(table.raidId, table.slug)],
+);
 
 export const dungeons = pgTable("dungeons", {
   id: id(),

@@ -5,6 +5,7 @@ import { db } from "../db";
 import { characters, characterQueue, processingState, characterProfiles, characterBossStats, characterAiSummary, expansions, seasons, raids, bosses, dungeons } from "../db/schema";
 import { requireAdmin } from "../auth/middleware";
 import { rateLimitManager } from "../services/rate-limiter";
+import { syncRaidData } from "../services/raid-sync";
 import { log } from "../lib/logger";
 import { publishProcessingUpdate, publishUserQueuedUpdate } from "../lib/sse";
 
@@ -269,6 +270,33 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
         raidList: t.Optional(t.Array(t.Any())),
         bossList: t.Optional(t.Array(t.Any())),
         dungeonList: t.Optional(t.Array(t.Any())),
+      }),
+    },
+  )
+
+  // ── Sync Raid Data from APIs ────────────────────────────────────────
+  .post(
+    "/sync-raids",
+    async ({ body }) => {
+      log.info({ options: body }, "Admin triggered raid data sync");
+      try {
+        const result = await syncRaidData({
+          force: body.force ?? true,
+          skipIcons: body.skipIcons ?? false,
+        });
+        return { success: true, result };
+      } catch (error) {
+        log.error({ err: error }, "Admin raid sync failed");
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+    {
+      body: t.Object({
+        force: t.Optional(t.Boolean()),
+        skipIcons: t.Optional(t.Boolean()),
       }),
     },
   );

@@ -8,6 +8,20 @@
       "when": 1771184946136,
       "tag": "0000_condemned_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1771604510771,
+      "tag": "0001_sparkling_echo",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771617168747,
+      "tag": "0002_married_santa_claus",
+      "breakpoints": true
     }
   ]
 }
