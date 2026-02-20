@@ -121,24 +121,8 @@ export interface BlizzardAchievement {
   completed_timestamp: number;
 }
 
-// Well-known Cutting Edge / AotC achievement IDs
-const CUTTING_EDGE_IDS = new Set([
-  // TWW
-  20590, // CE: Queen Ansurek
-  // DF
-  19350, // CE: Fyrakk
-  18254, // CE: Scalecommander Sarkareth
-  17108, // CE: Raszageth
-]);
-
-const AOTC_IDS = new Set([
-  // TWW
-  20589, // AotC: Queen Ansurek
-  // DF
-  19349, // AotC: Fyrakk
-  18253, // AotC: Scalecommander Sarkareth
-  17107, // AotC: Raszageth
-]);
+const CUTTING_EDGE_PHRASE = "cutting edge";
+const AOTC_PHRASE = "ahead of the curve";
 
 export async function fetchCharacterAchievements(realmSlug: string, characterName: string, region: string = "eu"): Promise<BlizzardAchievement[]> {
   const parts = normalizePathParts(realmSlug, characterName);
@@ -149,8 +133,13 @@ export async function fetchCharacterAchievements(realmSlug: string, characterNam
 
   if (!data?.achievements) return [];
 
-  // Filter for CE and AotC achievements
-  const relevant = data.achievements.filter((a: any) => CUTTING_EDGE_IDS.has(a.achievement?.id) || AOTC_IDS.has(a.achievement?.id));
+  // Filter for CE and AotC achievements using achievement names
+  const relevant = data.achievements.filter((a: any) => {
+    const name = a.achievement?.name;
+    if (typeof name !== "string") return false;
+    const lower = name.toLowerCase();
+    return lower.includes(CUTTING_EDGE_PHRASE) || lower.includes(AOTC_PHRASE);
+  });
 
   return relevant.map((a: any) => ({
     id: a.id,
@@ -159,9 +148,12 @@ export async function fetchCharacterAchievements(realmSlug: string, characterNam
   }));
 }
 
-export function getAchievementType(achievementId: number): "cutting_edge" | "ahead_of_the_curve" | null {
-  if (CUTTING_EDGE_IDS.has(achievementId)) return "cutting_edge";
-  if (AOTC_IDS.has(achievementId)) return "ahead_of_the_curve";
+export function getAchievementType(achievementName: string | null | undefined): "cutting_edge" | "ahead_of_the_curve" | null {
+  if (!achievementName) return null;
+
+  const lowerName = achievementName.toLowerCase();
+  if (lowerName.includes(CUTTING_EDGE_PHRASE)) return "cutting_edge";
+  if (lowerName.includes(AOTC_PHRASE)) return "ahead_of_the_curve";
   return null;
 }
 

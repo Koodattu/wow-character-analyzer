@@ -132,7 +132,7 @@ const lightweightWorker = new Worker(
       const achievements = await fetchCharacterAchievements(realmSlug, characterName, region);
 
       for (const achievement of achievements) {
-        const type = getAchievementType(achievement.achievement.id);
+        const type = getAchievementType(achievement.achievement.name);
         if (!type) continue;
 
         // Upsert achievement
