@@ -12,7 +12,6 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { Shield, Skull, Swords, Trophy, Brain, Activity, Timer, TrendingUp, TrendingDown, AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
 
@@ -246,7 +245,6 @@ export default function CharacterProfilePage() {
   const [data, setData] = useState<CharacterData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedSpec, setSelectedSpec] = useState("all");
 
   const fetchCharacter = useCallback(async () => {
     if (!realm || !name) {
@@ -279,14 +277,6 @@ export default function CharacterProfilePage() {
       setLoading(false);
     });
   }, [realm, name]);
-
-  // Unique specs across all bosses
-  const allSpecs = useMemo(() => {
-    if (!data?.raidData) return [];
-    const s = new Set<string>();
-    for (const exp of data.raidData) for (const raid of exp.raids) for (const boss of raid.bosses) for (const sp of boss.specs) s.add(sp.spec);
-    return [...s].sort();
-  }, [data?.raidData]);
 
   // Default expansion tab: first with kills
   const defaultExpansionSlug = useMemo(() => {
@@ -340,8 +330,14 @@ export default function CharacterProfilePage() {
   const aheadOfTheCurve = achievements.filter((a) => a.type === "ahead_of_the_curve");
   const hasRaidKills = raidData.some((exp) => exp.raids.some((r) => r.bosses.some((b) => b.totalKills > 0)));
 
-  function getBossDisplay(boss: BossData) {
-    if (selectedSpec === "all") {
+  function getRaidSpecs(raid: RaidData): string[] {
+    const s = new Set<string>();
+    for (const boss of raid.bosses) for (const sp of boss.specs) s.add(sp.spec);
+    return [...s].sort();
+  }
+
+  function getBossDisplay(boss: BossData, spec: string) {
+    if (spec === "all") {
       return {
         kills: boss.totalKills,
         best: boss.bestParse,
@@ -349,7 +345,7 @@ export default function CharacterProfilePage() {
         avg: boss.avgParse,
       };
     }
-    const sp = boss.specs.find((s) => s.spec === selectedSpec);
+    const sp = boss.specs.find((s) => s.spec === spec);
     if (!sp) return { kills: 0, best: null, median: null, avg: null };
     return { kills: sp.kills, best: sp.bestParse, median: sp.medianParse, avg: sp.avgParse };
   }
@@ -471,29 +467,12 @@ export default function CharacterProfilePage() {
         </Card>
       )}
 
-      {/* -- Raid Performance (Expansion Tabs) ------------------------------ */}
+      {/* -- Raid Performance (Expansion → Raid → Spec Tabs) --------------- */}
       <section className="space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
-            <Swords className="h-5 w-5" />
-            Raid Performance
-          </h2>
-          {allSpecs.length > 0 && (
-            <Select value={selectedSpec} onValueChange={setSelectedSpec}>
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder="Spec filter" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Specs</SelectItem>
-                {allSpecs.map((spec) => (
-                  <SelectItem key={spec} value={spec}>
-                    {spec}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+        <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
+          <Swords className="h-5 w-5" />
+          Raid Performance
+        </h2>
 
         {!hasRaidKills ? (
           <Card>
@@ -514,66 +493,94 @@ export default function CharacterProfilePage() {
                 ))}
             </TabsList>
 
-            {raidData.map((exp) => (
-              <TabsContent key={exp.slug} value={exp.slug} className="space-y-6 mt-4">
-                {exp.raids
-                  .filter((raid) => raid.bosses.some((b) => b.totalKills > 0))
-                  .map((raid) => (
-                    <Card key={raid.id}>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Swords className="h-5 w-5" />
+            {raidData.map((exp) => {
+              const raidsWithKills = exp.raids.filter((r) => r.bosses.some((b) => b.totalKills > 0));
+              const defaultRaidSlug = raidsWithKills[0]?.slug;
+
+              return (
+                <TabsContent key={exp.slug} value={exp.slug} className="mt-4">
+                  <Tabs defaultValue={defaultRaidSlug}>
+                    <TabsList>
+                      {raidsWithKills.map((raid) => (
+                        <TabsTrigger key={raid.slug} value={raid.slug}>
                           {raid.name}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b text-muted-foreground">
-                                <th className="text-left py-2 pr-4 font-medium">Boss</th>
-                                <th className="text-center py-2 px-2 font-medium">Kills</th>
-                                <th className="text-center py-2 px-2 font-medium">Best</th>
-                                <th className="text-center py-2 px-2 font-medium">Median</th>
-                                <th className="text-center py-2 px-2 font-medium">Avg</th>
-                                <th className="text-center py-2 px-2 font-medium">Tier</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {raid.bosses.map((boss) => {
-                                const d = getBossDisplay(boss);
-                                const tier = getParseTier(d.best);
-                                return (
-                                  <tr key={boss.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
-                                    <td className="py-2.5 pr-4 font-medium text-foreground">{boss.name}</td>
-                                    <td className="text-center py-2.5 px-2 text-muted-foreground">{d.kills}</td>
-                                    <td className="text-center py-2.5 px-2">
-                                      <span className="font-semibold" style={{ color: getParseColor(d.best) }}>
-                                        {formatNumber(d.best)}
-                                      </span>
-                                    </td>
-                                    <td className="text-center py-2.5 px-2">
-                                      <span style={{ color: getParseColor(d.median) }}>{formatNumber(d.median)}</span>
-                                    </td>
-                                    <td className="text-center py-2.5 px-2">
-                                      <span style={{ color: getParseColor(d.avg) }}>{formatNumber(d.avg)}</span>
-                                    </td>
-                                    <td className="text-center py-2.5 px-2">
-                                      <Badge variant="outline" className="text-xs" style={{ borderColor: tier.color, color: tier.color }}>
-                                        {tier.label}
-                                      </Badge>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-              </TabsContent>
-            ))}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+
+                    {raidsWithKills.map((raid) => {
+                      const raidSpecs = getRaidSpecs(raid);
+
+                      return (
+                        <TabsContent key={raid.slug} value={raid.slug} className="mt-4">
+                          <Tabs defaultValue="all">
+                            <TabsList>
+                              <TabsTrigger value="all">All Specs</TabsTrigger>
+                              {raidSpecs.map((spec) => (
+                                <TabsTrigger key={spec} value={spec}>
+                                  {spec}
+                                </TabsTrigger>
+                              ))}
+                            </TabsList>
+
+                            {["all", ...raidSpecs].map((spec) => (
+                              <TabsContent key={spec} value={spec} className="mt-4">
+                                <Card>
+                                  <CardContent className="pt-6">
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-sm">
+                                        <thead>
+                                          <tr className="border-b text-muted-foreground">
+                                            <th className="text-left py-2 pr-4 font-medium">Boss</th>
+                                            <th className="text-center py-2 px-2 font-medium">Kills</th>
+                                            <th className="text-center py-2 px-2 font-medium">Best</th>
+                                            <th className="text-center py-2 px-2 font-medium">Median</th>
+                                            <th className="text-center py-2 px-2 font-medium">Avg</th>
+                                            <th className="text-center py-2 px-2 font-medium">Tier</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {raid.bosses.map((boss) => {
+                                            const d = getBossDisplay(boss, spec);
+                                            const tier = getParseTier(d.best);
+                                            return (
+                                              <tr key={boss.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                                                <td className="py-2.5 pr-4 font-medium text-foreground">{boss.name}</td>
+                                                <td className="text-center py-2.5 px-2 text-muted-foreground">{d.kills}</td>
+                                                <td className="text-center py-2.5 px-2">
+                                                  <span className="font-semibold" style={{ color: getParseColor(d.best) }}>
+                                                    {formatNumber(d.best)}
+                                                  </span>
+                                                </td>
+                                                <td className="text-center py-2.5 px-2">
+                                                  <span style={{ color: getParseColor(d.median) }}>{formatNumber(d.median)}</span>
+                                                </td>
+                                                <td className="text-center py-2.5 px-2">
+                                                  <span style={{ color: getParseColor(d.avg) }}>{formatNumber(d.avg)}</span>
+                                                </td>
+                                                <td className="text-center py-2.5 px-2">
+                                                  <Badge variant="outline" className="text-xs" style={{ borderColor: tier.color, color: tier.color }}>
+                                                    {tier.label}
+                                                  </Badge>
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              </TabsContent>
+                            ))}
+                          </Tabs>
+                        </TabsContent>
+                      );
+                    })}
+                  </Tabs>
+                </TabsContent>
+              );
+            })}
           </Tabs>
         )}
       </section>
