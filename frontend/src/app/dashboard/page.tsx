@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, unwrap } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +12,11 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getClassColor } from "@/lib/wow-constants";
 import { bindJsonSseEvents, openEventSource } from "@/lib/sse";
 import { Link as LinkIcon, UserPlus, Send, Loader2, RefreshCw, Shield, Check, X, Unlink } from "lucide-react";
+import { API_BASE_URL } from "@/lib/env";
 
 interface BnetCharacter {
   name: string;
@@ -135,6 +137,7 @@ export default function DashboardPage() {
   // Manual queue
   const [manualName, setManualName] = useState("");
   const [manualRealm, setManualRealm] = useState("");
+  const [manualRegion, setManualRegion] = useState("eu");
   const [queueing, setQueueing] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
 
@@ -158,10 +161,8 @@ export default function DashboardPage() {
     setBnetCharsLoading(true);
     try {
       const res = await api.api.user.characters.get();
-      const data = res.data as Record<string, unknown> | null;
-      if (data && "characters" in data) {
-        setBnetCharacters((data.characters as BnetCharacter[]) ?? []);
-      }
+      const data = unwrap<{ characters: BnetCharacter[]; linked: boolean }>(res);
+      setBnetCharacters(data.characters ?? []);
     } catch {
       // error fetching
     } finally {
@@ -178,9 +179,9 @@ export default function DashboardPage() {
     if (!user) return;
     try {
       const res = await api.api.user.queued.get();
-      const data = res.data as Record<string, unknown> | null;
-      if (data && "queuedCharacters" in data && Array.isArray(data.queuedCharacters)) {
-        setQueuedCharacters(mapQueuedRows(data.queuedCharacters as QueuedCharacterRow[]));
+      const data = unwrap<{ queuedCharacters: QueuedCharacterRow[] }>(res);
+      if (Array.isArray(data.queuedCharacters)) {
+        setQueuedCharacters(mapQueuedRows(data.queuedCharacters));
       }
     } catch {
       // error
@@ -229,7 +230,7 @@ export default function DashboardPage() {
       const chars = Array.from(selectedChars).map((i) => ({
         name: bnetCharacters[i].name,
         realm: bnetCharacters[i].realm,
-        region: "eu",
+        region: manualRegion,
       }));
       await api.api.characters.queue.batch.post({ characters: chars });
       setQueueMessage(`Queued ${chars.length} character${chars.length > 1 ? "s" : ""}!`);
@@ -252,7 +253,7 @@ export default function DashboardPage() {
       await api.api.characters.queue.post({
         name: manualName.trim(),
         realm: manualRealm.trim(),
-        region: "eu",
+        region: manualRegion,
       });
       setQueueMessage(`Queued ${manualName}!`);
       setManualName("");
@@ -336,7 +337,7 @@ export default function DashboardPage() {
                 </>
               ) : (
                 <Button size="sm" asChild className="bg-[#5865F2] hover:bg-[#4752C4] text-white">
-                  <a href={`${API_URL}/api/auth/discord`}>
+                  <a href={`${API_BASE_URL}/api/auth/discord`}>
                     <LinkIcon className="h-4 w-4 mr-1" />
                     Link
                   </a>
@@ -377,7 +378,7 @@ export default function DashboardPage() {
                 </>
               ) : (
                 <Button size="sm" asChild className="bg-[#00AEFF] hover:bg-[#0090D0] text-white">
-                  <a href={`${API_URL}/api/auth/battlenet`}>
+                  <a href={`${API_BASE_URL}/api/auth/battlenet`}>
                     <LinkIcon className="h-4 w-4 mr-1" />
                     Link
                   </a>
@@ -454,6 +455,17 @@ export default function DashboardPage() {
           <form onSubmit={queueManual} className="flex flex-col sm:flex-row gap-3">
             <Input placeholder="Character name" value={manualName} onChange={(e) => setManualName(e.target.value)} className="flex-1" />
             <Input placeholder="Realm name" value={manualRealm} onChange={(e) => setManualRealm(e.target.value)} className="flex-1" />
+            <Select value={manualRegion} onValueChange={setManualRegion}>
+              <SelectTrigger className="w-25">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="eu">EU</SelectItem>
+                <SelectItem value="us">US</SelectItem>
+                <SelectItem value="kr">KR</SelectItem>
+                <SelectItem value="tw">TW</SelectItem>
+              </SelectContent>
+            </Select>
             <Button type="submit" disabled={queueing || !manualName.trim() || !manualRealm.trim()}>
               {queueing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
               Queue

@@ -113,6 +113,18 @@ const lightweightWorker = new Worker(
 
     log.info({ characterId, characterName, realmSlug }, "Lightweight scan started");
 
+    // ── Idempotency guard: skip if already completed ──────────
+    const [existingState] = await db
+      .select({ lightweightStatus: processingState.lightweightStatus })
+      .from(processingState)
+      .where(eq(processingState.characterId, characterId))
+      .limit(1);
+
+    if (existingState?.lightweightStatus === "completed") {
+      log.info({ characterId, characterName }, "Lightweight scan already completed — skipping duplicate job");
+      return;
+    }
+
     try {
       // Update status
       await db
@@ -404,6 +416,7 @@ const lightweightWorker = new Worker(
   {
     concurrency: 1,
     embedded: true,
+    lockDuration: 5 * 60_000, // 5 minutes — lightweight scan includes AI generation (~20-40s)
   },
 );
 
@@ -419,6 +432,14 @@ const deepScanWorker = new Worker(
     };
 
     log.info({ characterId, characterName, realmSlug }, "Deep scan started");
+
+    // ── Idempotency guard: skip if already completed ──────────
+    const [existingState] = await db.select({ deepScanStatus: processingState.deepScanStatus }).from(processingState).where(eq(processingState.characterId, characterId)).limit(1);
+
+    if (existingState?.deepScanStatus === "completed") {
+      log.info({ characterId, characterName }, "Deep scan already completed — skipping duplicate job");
+      return;
+    }
 
     try {
       await db
@@ -472,6 +493,7 @@ const deepScanWorker = new Worker(
   {
     concurrency: 1,
     embedded: true,
+    lockDuration: 3 * 60_000, // 3 minutes — deep scan includes AI regeneration
   },
 );
 

@@ -34,26 +34,26 @@ export const authPlugin = new Elysia({ name: "auth" })
 
 export const requireAuth = new Elysia({ name: "requireAuth" })
   .use(authPlugin)
-  .derive(({ set, ...ctx }: any) => {
-    if (!ctx.user || !ctx.session) {
+  .derive(({ set, user, session }) => {
+    if (!user || !session) {
       set.status = 401;
       throw new Error("Unauthorized");
     }
-    return { user: ctx.user as User, session: ctx.session as Session };
+    return { user: user as User, session: session as Session };
   })
   .as("global");
 
 export const requireAdmin = new Elysia({ name: "requireAdmin" })
   .use(authPlugin)
-  .derive(({ set, ...ctx }: any) => {
-    if (!ctx.user || !ctx.session) {
+  .derive(({ set, user, session }) => {
+    if (!user || !session) {
       set.status = 401;
       throw new Error("Unauthorized");
     }
-    if (!ctx.user.isAdmin) {
+    if (!(user as User).isAdmin) {
       set.status = 403;
       throw new Error("Forbidden");
     }
-    return { user: ctx.user as User, session: ctx.session as Session };
+    return { user: user as User, session: session as Session };
   })
   .as("global");

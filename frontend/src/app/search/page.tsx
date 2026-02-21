@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { api } from "@/lib/api";
+import { api, unwrapOrNull } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -84,9 +84,10 @@ function SearchContent() {
           limit: "20",
         },
       });
-      if (response.data && "characters" in response.data) {
-        setResults(response.data.characters as SearchResult[]);
-        setTotal((response.data as Record<string, unknown>).pagination ? (((response.data as Record<string, unknown>).pagination as Record<string, number>)?.total ?? 0) : 0);
+      const data = unwrapOrNull<{ characters: SearchResult[]; pagination: { total: number; page: number; limit: number; totalPages: number } }>(response);
+      if (data) {
+        setResults(data.characters);
+        setTotal(data.pagination?.total ?? 0);
       }
     } catch {
       // API not available

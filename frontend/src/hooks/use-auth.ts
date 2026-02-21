@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { api } from "@/lib/api";
+import { api, unwrapOrNull } from "@/lib/api";
 
 interface LinkedProviders {
   discord: boolean;
@@ -16,6 +16,15 @@ interface User {
   linkedProviders: LinkedProviders;
 }
 
+interface AuthMeResponse {
+  user: User | null;
+}
+
+interface UnlinkResponse {
+  success?: boolean;
+  error?: string;
+}
+
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -23,11 +32,8 @@ export function useAuth() {
   const fetchUser = useCallback(async () => {
     try {
       const response = await api.api.auth.me.get();
-      if (response.data && "user" in response.data && response.data.user) {
-        setUser(response.data.user as User);
-      } else {
-        setUser(null);
-      }
+      const data = unwrapOrNull<AuthMeResponse>(response);
+      setUser(data?.user ?? null);
     } catch {
       setUser(null);
     } finally {
@@ -51,14 +57,13 @@ export function useAuth() {
 
   const unlinkProvider = async (provider: "discord" | "battlenet") => {
     try {
-      const response = await (api.api.auth.unlink as unknown as Record<string, { post: () => Promise<{ data: Record<string, unknown> | null }> }>)[provider].post();
-      if (response.data && "success" in response.data) {
-        // Refresh user data to get updated linked providers
+      const response = await api.api.auth.unlink({ provider }).post();
+      const data = unwrapOrNull<UnlinkResponse>(response);
+      if (data?.success) {
         await fetchUser();
         return { success: true };
       }
-      const errorMsg = response.data && "error" in response.data ? String(response.data.error) : "Failed to unlink";
-      return { success: false, error: errorMsg };
+      return { success: false, error: data?.error ?? "Failed to unlink" };
     } catch {
       return { success: false, error: "Failed to unlink provider" };
     }

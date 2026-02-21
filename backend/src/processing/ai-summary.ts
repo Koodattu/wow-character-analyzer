@@ -144,6 +144,7 @@ export async function generateAiSummary(characterId: string): Promise<void> {
           { role: "user", content: prompt },
         ],
         max_completion_tokens: 1500,
+        response_format: { type: "json_object" },
       }),
     });
 
@@ -159,19 +160,44 @@ export async function generateAiSummary(characterId: string): Promise<void> {
     // Parse the JSON response
     let parsed: AiSummaryResult;
     try {
-      // Try to extract JSON from the response (handle markdown code blocks)
-      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch?.[0] ?? rawResponse);
+      // Try direct parse first (response_format: json_object should guarantee valid JSON)
+      parsed = JSON.parse(rawResponse);
     } catch {
-      log.error("Failed to parse AI response as JSON");
-      parsed = {
-        verdict: rawResponse.slice(0, 200),
-        summary: rawResponse,
-        strengths: [],
-        improvements: [],
-        pitfalls: [],
-      };
+      // Fallback: extract JSON from markdown code blocks or surrounding text
+      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          parsed = JSON.parse(jsonMatch[0]);
+        } catch {
+          log.warn("Failed to parse extracted JSON from AI response, using fallback");
+          parsed = {
+            verdict: rawResponse.slice(0, 200),
+            summary: rawResponse,
+            strengths: [],
+            improvements: [],
+            pitfalls: [],
+          };
+        }
+      } else {
+        log.warn("No JSON object found in AI response, using fallback");
+        parsed = {
+          verdict: rawResponse.slice(0, 200),
+          summary: rawResponse,
+          strengths: [],
+          improvements: [],
+          pitfalls: [],
+        };
+      }
     }
+
+    // Validate required fields exist and are the right types
+    parsed = {
+      verdict: typeof parsed.verdict === "string" ? parsed.verdict : "",
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+      strengths: Array.isArray(parsed.strengths) ? parsed.strengths.filter((s): s is string => typeof s === "string") : [],
+      improvements: Array.isArray(parsed.improvements) ? parsed.improvements.filter((s): s is string => typeof s === "string") : [],
+      pitfalls: Array.isArray(parsed.pitfalls) ? parsed.pitfalls.filter((s): s is string => typeof s === "string") : [],
+    };
 
     // Upsert AI summary
     const [existing] = await db.select().from(characterAiSummary).where(eq(characterAiSummary.characterId, characterId)).limit(1);

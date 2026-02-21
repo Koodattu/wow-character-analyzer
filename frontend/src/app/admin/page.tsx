@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, unwrapOrNull } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,17 +84,14 @@ export default function AdminPage() {
     try {
       const [queueRes, rateRes, charactersRes] = await Promise.all([api.api.admin.queue.get(), api.api.admin["rate-limits"].get(), api.api.admin.characters.get()]);
 
-      if (queueRes.data) {
-        setQueueData(queueRes.data as unknown as QueueOverview);
-      }
-      if (rateRes.data) {
-        const raw = rateRes.data as unknown as { rateLimits: RateLimitStatus } | RateLimitStatus;
-        setRateLimits("rateLimits" in raw ? raw.rateLimits : raw);
-      }
-      if (charactersRes.data) {
-        const raw = charactersRes.data as unknown as { characters: AdminCharacter[] };
-        setAdminCharacters(raw.characters ?? []);
-      }
+      const queueData = unwrapOrNull<QueueOverview>(queueRes);
+      if (queueData) setQueueData(queueData);
+
+      const rateData = unwrapOrNull<{ rateLimits: RateLimitStatus }>(rateRes);
+      if (rateData) setRateLimits(rateData.rateLimits);
+
+      const charsData = unwrapOrNull<{ characters: AdminCharacter[] }>(charactersRes);
+      if (charsData) setAdminCharacters(charsData.characters ?? []);
     } catch {
       // API error
     } finally {

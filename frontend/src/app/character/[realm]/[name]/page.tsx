@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
-import { api } from "@/lib/api";
+import { api, unwrap } from "@/lib/api";
 import { bindJsonSseEvents, openEventSource } from "@/lib/sse";
 import { getClassColor, getParseColor, getParseTier, getFactionColor } from "@/lib/wow-constants";
 
@@ -255,14 +255,10 @@ export default function CharacterProfilePage() {
       return;
     }
     try {
-      const response = await api.api.characters[realm][name].get();
-      if (response.data) {
-        const d = response.data as unknown as CharacterData;
-        setData(d);
-        setError(d.error && !d.character ? d.error : null);
-      } else {
-        setError("Failed to fetch character data");
-      }
+      const response = await api.api.characters({ realm })({ name }).get();
+      const d = unwrap<CharacterData>(response);
+      setData(d);
+      setError(d.error && !d.character ? d.error : null);
     } catch {
       setError("Failed to fetch character data");
     } finally {

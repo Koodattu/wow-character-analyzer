@@ -263,7 +263,8 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     return redirect(`https://discord.com/api/oauth2/authorize?${params.toString()}`);
   })
 
-  .get("/discord/callback", async ({ query, cookie, set, redirect, user: currentUser }: any) => {
+  .get("/discord/callback", async (ctx) => {
+    const { query, cookie, set, redirect, user: currentUser } = ctx as typeof ctx & { redirect: (url: string) => Response };
     const { code, state } = query as { code?: string; state?: string };
     const storedState = cookie?.oauth_state?.value;
 
@@ -344,7 +345,8 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     return redirect(`https://oauth.battle.net/authorize?${params.toString()}`);
   })
 
-  .get("/battlenet/callback", async ({ query, cookie, set, redirect, user: currentUser }: any) => {
+  .get("/battlenet/callback", async (ctx) => {
+    const { query, cookie, set, redirect, user: currentUser } = ctx as typeof ctx & { redirect: (url: string) => Response };
     const { code, state } = query as { code?: string; state?: string };
     const storedState = cookie?.oauth_state?.value;
 
@@ -396,7 +398,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   })
 
   // ── Logout ──────────────────────────────────────────────────────────
-  .post("/logout", async ({ session, cookie }: any) => {
+  .post("/logout", async ({ session, cookie }) => {
     if (session) {
       await lucia.invalidateSession(session.id);
     }
@@ -411,7 +413,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   })
 
   // ── Current User ────────────────────────────────────────────────────
-  .get("/me", async ({ user }: any) => {
+  .get("/me", async ({ user }) => {
     if (!user) {
       return { user: null };
     }
@@ -433,7 +435,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   })
 
   // ── Unlink Provider ─────────────────────────────────────────────────
-  .post("/unlink/:provider", async ({ params, user, session, set }: any) => {
+  .post("/unlink/:provider", async ({ params, user, session, set }) => {
     if (!user || !session) {
       set.status = 401;
       return { error: "Unauthorized" };
