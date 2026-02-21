@@ -2,15 +2,16 @@
 // Embedded job queue with SQLite persistence — no Redis required
 import { Queue, Worker } from "bunqueue/client";
 import type { Job } from "bunqueue/client";
-import { eq, isNotNull } from "drizzle-orm";
+import { eq, and, isNotNull } from "drizzle-orm";
 import { db } from "../db";
 import { characters, processingState, characterQueue, wclParses, raiderioScores, raiderioRuns, blizzardAchievements, bosses, raids, seasons } from "../db/schema";
 import { fetchCharacterProfile, fetchCharacterMedia, fetchCharacterAchievements, getAchievementType } from "../services/blizzard";
-import { fetchEncounterRankings, type WclEncounterRanking } from "../services/warcraftlogs";
-import { fetchRaiderioCharacter, fetchRaiderioHistoricalScores } from "../services/raiderio";
+import { fetchBatchedEncounterRankings } from "../services/warcraftlogs";
+import { fetchRaiderioCharacter, fetchRaiderioHistoricalScores, fetchRaiderioSeasonBestRuns } from "../services/raiderio";
 import { computeCharacterProfile, computeBossStats } from "../processing/profile";
 import { generateAiSummary } from "../processing/ai-summary";
 import { rateLimitManager } from "../services/rate-limiter";
+import { SEASONS, getAllRioSeasonSlugs } from "../config/raids";
 import { log as rootLog } from "../lib/logger";
 import { publishProcessingUpdate, publishUserQueuedUpdate } from "../lib/sse";
 
@@ -51,27 +52,52 @@ async function updateStep(characterId: string, step: string, status: "in_progres
   broadcastQueueStateChange();
 }
 
-// ─── Tracked Boss Encounter IDs ────────────────────────────────────────
-// Dynamically loaded from the DB (populated by raid-sync service).
-// Falls back to empty array if sync hasn't run yet.
+// ─── Tracked Boss Encounter IDs (Grouped by Zone) ─────────────────────
+// Returns encounters grouped by WCL zone for efficient batched queries.
 
-async function getTrackedEncounterIds(): Promise<number[]> {
+interface ZoneEncounters {
+  zoneId: number;
+  zoneName: string;
+  raidDbId: string;
+  encounterIds: number[];
+}
+
+async function getTrackedEncountersByZone(): Promise<ZoneEncounters[]> {
   const rows = await db
-    .select({ wclEncounterId: bosses.wclEncounterId })
+    .select({
+      wclEncounterId: bosses.wclEncounterId,
+      raidId: bosses.raidId,
+      raidName: raids.name,
+      wclZoneId: raids.wclZoneId,
+    })
     .from(bosses)
     .innerJoin(raids, eq(bosses.raidId, raids.id))
     .innerJoin(seasons, eq(raids.seasonId, seasons.id))
     .where(isNotNull(bosses.wclEncounterId));
 
-  const ids = rows.map((r) => r.wclEncounterId).filter((id): id is number => id !== null);
-
-  if (ids.length === 0) {
-    log.warn("No tracked encounter IDs found in DB — has raid sync run?");
-  } else {
-    log.debug({ count: ids.length }, "Loaded tracked encounter IDs from DB");
+  // Group by zone
+  const zoneMap = new Map<number, ZoneEncounters>();
+  for (const row of rows) {
+    if (!row.wclZoneId || !row.wclEncounterId) continue;
+    if (!zoneMap.has(row.wclZoneId)) {
+      zoneMap.set(row.wclZoneId, {
+        zoneId: row.wclZoneId,
+        zoneName: row.raidName,
+        raidDbId: row.raidId,
+        encounterIds: [],
+      });
+    }
+    zoneMap.get(row.wclZoneId)!.encounterIds.push(row.wclEncounterId);
   }
 
-  return ids;
+  const zones = [...zoneMap.values()];
+  if (zones.length === 0) {
+    log.warn("No tracked encounter IDs found in DB — has raid sync run?");
+  } else {
+    log.debug({ zoneCount: zones.length, totalEncounters: zones.reduce((s, z) => s + z.encounterIds.length, 0) }, "Loaded tracked encounters by zone");
+  }
+
+  return zones;
 }
 
 // ─── Lightweight Scan Worker ───────────────────────────────────────────
@@ -89,14 +115,9 @@ const lightweightWorker = new Worker(
 
     try {
       // Update status
-      await db.update(processingState).set({ lightweightStatus: "in_progress", currentStep: "Starting..." }).where(eq(processingState.characterId, characterId));
-      broadcastQueueStateChange();
-
       await db
         .update(processingState)
-        .set({
-          errorMessage: null,
-        })
+        .set({ lightweightStatus: "in_progress", currentStep: "Starting...", errorMessage: null })
         .where(eq(processingState.characterId, characterId));
       broadcastQueueStateChange();
 
@@ -135,7 +156,6 @@ const lightweightWorker = new Worker(
         const type = getAchievementType(achievement.achievement.name);
         if (!type) continue;
 
-        // Upsert achievement
         await db
           .insert(blizzardAchievements)
           .values({
@@ -149,30 +169,37 @@ const lightweightWorker = new Worker(
       }
       await updateStep(characterId, "Achievements", "completed");
 
-      // ── Step 3: WCL Rankings ───────────────────────────────────────
+      // ── Step 3: WCL Rankings (Batched per Zone) ────────────────────
       await updateStep(characterId, "Fetching WarcraftLogs rankings");
 
-      const trackedEncounterIds = await getTrackedEncounterIds();
+      const zoneEncounters = await getTrackedEncountersByZone();
+      let totalParsesStored = 0;
 
-      for (const encounterId of trackedEncounterIds) {
+      // Clear old parses for this character before re-fetching (avoids duplicates on re-queue)
+      await db.delete(wclParses).where(eq(wclParses.characterId, characterId));
+
+      for (const zone of zoneEncounters) {
         if (!rateLimitManager.canMakeRequest("wcl")) {
-          log.warn("WCL rate limit reached, waiting");
+          log.warn("WCL rate limit approaching, waiting 5s");
           await new Promise((resolve) => setTimeout(resolve, 5000));
         }
 
-        const rankings = await fetchEncounterRankings(
+        await updateStep(characterId, `Fetching WCL: ${zone.zoneName}`);
+
+        // One batched query per zone (all bosses in one request)
+        const rankingsMap = await fetchBatchedEncounterRankings(
           characterName,
           realmSlug,
           region,
-          encounterId,
-          5, // Mythic
+          zone.encounterIds,
+          5, // Mythic only
         );
 
-        if (rankings?.ranks) {
-          for (const rank of rankings.ranks) {
-            // Check for duplicate
-            const existing = await db.select().from(wclParses).where(eq(wclParses.characterId, characterId)).limit(1);
+        // Store all kills from all encounters in this zone
+        for (const [encounterId, rankings] of rankingsMap) {
+          if (!rankings?.ranks) continue;
 
+          for (const rank of rankings.ranks) {
             await db.insert(wclParses).values({
               characterId,
               encounterId,
@@ -186,20 +213,30 @@ const lightweightWorker = new Worker(
               duration: rank.duration,
               killOrWipe: true,
               startTime: new Date(rank.startTime),
-              rawData: rank as any,
+              rawData: { ...rank, zoneId: zone.zoneId, totalKills: rankings.totalKills, medianPercent: rankings.medianPercent } as any,
             });
+            totalParsesStored++;
           }
         }
+
+        log.debug({ zone: zone.zoneName, encounters: rankingsMap.size, characterName }, "Zone rankings fetched");
       }
+
+      log.info({ characterName, totalParsesStored, zones: zoneEncounters.length }, "WCL rankings complete");
       await updateStep(characterId, "WCL Rankings", "completed");
 
-      // ── Step 4: Raider.IO ──────────────────────────────────────────
+      // ── Step 4: Raider.IO (Current + Historical) ──────────────────
       await updateStep(characterId, "Fetching Raider.IO data");
 
+      // Clear old runs/scores to avoid duplicates on re-queue
+      await db.delete(raiderioRuns).where(eq(raiderioRuns.characterId, characterId));
+      await db.delete(raiderioScores).where(eq(raiderioScores.characterId, characterId));
+
       const rioData = await fetchRaiderioCharacter(characterName, realmSlug, region);
+      const currentRioSeasonSlug = rioData?.mythicPlusScores?.[0]?.season ?? null;
 
       if (rioData) {
-        // Store M+ scores
+        // Store current season M+ score
         for (const score of rioData.mythicPlusScores) {
           await db
             .insert(raiderioScores)
@@ -215,13 +252,19 @@ const lightweightWorker = new Worker(
             .onConflictDoNothing();
         }
 
-        // Store M+ runs
-        const allRuns = [...rioData.mythicPlusBestRuns, ...rioData.mythicPlusRecentRuns, ...rioData.mythicPlusAlternateRuns];
+        // Store current season best + alternate + recent runs
+        const allCurrentRuns = [...rioData.mythicPlusBestRuns, ...rioData.mythicPlusAlternateRuns, ...rioData.mythicPlusRecentRuns];
 
-        for (const run of allRuns) {
+        // Deduplicate runs by dungeon+keyLevel+completedAt
+        const seenRunKeys = new Set<string>();
+        for (const run of allCurrentRuns) {
+          const runKey = `${run.dungeon}:${run.mythic_level}:${run.completed_at}`;
+          if (seenRunKeys.has(runKey)) continue;
+          seenRunKeys.add(runKey);
+
           await db.insert(raiderioRuns).values({
             characterId,
-            seasonSlug: "current",
+            seasonSlug: currentRioSeasonSlug ?? "current",
             dungeonName: run.dungeon,
             dungeonSlug: run.short_name,
             keyLevel: run.mythic_level,
@@ -234,6 +277,68 @@ const lightweightWorker = new Worker(
           });
         }
       }
+
+      // Fetch historical season scores + best runs
+      await updateStep(characterId, "Fetching historical M+ data");
+
+      const allRioSeasonSlugs = getAllRioSeasonSlugs();
+      // Filter out current season (already fetched)
+      const historicalSlugs = allRioSeasonSlugs.filter((s) => s !== currentRioSeasonSlug);
+
+      if (historicalSlugs.length > 0) {
+        // Fetch all historical scores in one request
+        const historicalScores = await fetchRaiderioHistoricalScores(characterName, realmSlug, region, historicalSlugs);
+
+        for (const score of historicalScores) {
+          await db
+            .insert(raiderioScores)
+            .values({
+              characterId,
+              seasonSlug: score.season,
+              overallScore: score.scores.all,
+              tankScore: score.scores.tank,
+              healerScore: score.scores.healer,
+              dpsScore: score.scores.dps,
+              rawData: score as any,
+            })
+            .onConflictDoNothing();
+        }
+
+        // Fetch best runs for historical seasons that had a score
+        const scoredHistoricalSlugs = historicalScores.filter((s) => s.scores.all > 0).map((s) => s.season);
+
+        for (const seasonSlug of scoredHistoricalSlugs) {
+          try {
+            const { bestRuns, alternateRuns } = await fetchRaiderioSeasonBestRuns(characterName, realmSlug, region, seasonSlug);
+
+            const allHistRuns = [...bestRuns, ...alternateRuns];
+            const seenKeys = new Set<string>();
+
+            for (const run of allHistRuns) {
+              const key = `${run.dungeon}:${run.mythic_level}:${run.completed_at}`;
+              if (seenKeys.has(key)) continue;
+              seenKeys.add(key);
+
+              await db.insert(raiderioRuns).values({
+                characterId,
+                seasonSlug,
+                dungeonName: run.dungeon,
+                dungeonSlug: run.short_name,
+                keyLevel: run.mythic_level,
+                score: run.score,
+                timed: run.num_keystone_upgrades > 0,
+                completedAt: new Date(run.completed_at),
+                numKeystoneUpgrades: run.num_keystone_upgrades,
+                duration: run.clear_time_ms,
+                rawData: run as any,
+              });
+            }
+          } catch (err) {
+            log.warn({ err, seasonSlug, characterName }, "Failed to fetch historical season runs — continuing");
+          }
+        }
+      }
+
       await updateStep(characterId, "Raider.IO", "completed");
 
       // ── Step 5: Compute Profiles ───────────────────────────────────

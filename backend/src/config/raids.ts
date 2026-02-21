@@ -18,6 +18,8 @@ export interface SeasonDef {
   number: number;
   /** WCL zone IDs for the raids in this season */
   raidWclZoneIds: number[];
+  /** Raider.IO M+ season slug (e.g. "season-tww-3") for fetching runs/scores */
+  rioSeasonSlug?: string;
 }
 
 // ─── Tracked Expansions ────────────────────────────────────────────────
@@ -25,6 +27,7 @@ export interface SeasonDef {
 // from the zone details (each WCL zone includes its expansion).
 
 export const TRACKED_RIO_EXPANSION_IDS: number[] = [
+  11, // Midnight
   10, // The War Within
   9, // Dragonflight
 ];
@@ -35,15 +38,15 @@ export const TRACKED_RIO_EXPANSION_IDS: number[] = [
 
 export const SEASONS: SeasonDef[] = [
   // ── The War Within ──────────────────────────────────────────────
-  { slug: "tww-s3", rioExpansionId: 10, number: 3, raidWclZoneIds: [44] },
-  { slug: "tww-s2", rioExpansionId: 10, number: 2, raidWclZoneIds: [42] },
-  { slug: "tww-s1", rioExpansionId: 10, number: 1, raidWclZoneIds: [38] },
+  { slug: "tww-s3", rioExpansionId: 10, number: 3, raidWclZoneIds: [44], rioSeasonSlug: "season-tww-3" },
+  { slug: "tww-s2", rioExpansionId: 10, number: 2, raidWclZoneIds: [42], rioSeasonSlug: "season-tww-2" },
+  { slug: "tww-s1", rioExpansionId: 10, number: 1, raidWclZoneIds: [38], rioSeasonSlug: "season-tww-1" },
 
   // ── Dragonflight ────────────────────────────────────────────────
-  { slug: "df-s4", rioExpansionId: 9, number: 4, raidWclZoneIds: [] },
-  { slug: "df-s3", rioExpansionId: 9, number: 3, raidWclZoneIds: [35] },
-  { slug: "df-s2", rioExpansionId: 9, number: 2, raidWclZoneIds: [33] },
-  { slug: "df-s1", rioExpansionId: 9, number: 1, raidWclZoneIds: [31] },
+  { slug: "df-s4", rioExpansionId: 9, number: 4, raidWclZoneIds: [], rioSeasonSlug: "season-df-4" },
+  { slug: "df-s3", rioExpansionId: 9, number: 3, raidWclZoneIds: [35], rioSeasonSlug: "season-df-3" },
+  { slug: "df-s2", rioExpansionId: 9, number: 2, raidWclZoneIds: [33], rioSeasonSlug: "season-df-2" },
+  { slug: "df-s1", rioExpansionId: 9, number: 1, raidWclZoneIds: [31], rioSeasonSlug: "season-df-1" },
 ];
 
 // ─── Current Tier ──────────────────────────────────────────────────────
@@ -85,4 +88,30 @@ export function findRioExpansionId(zoneId: number): number | undefined {
 /** Get unique RIO expansion IDs referenced by tracked seasons */
 export function getUniqueRioExpansionIds(): number[] {
   return [...new Set(SEASONS.map((s) => s.rioExpansionId))];
+}
+
+/** All Raider.IO season slugs that have M+ data */
+export function getAllRioSeasonSlugs(): string[] {
+  return SEASONS.map((s) => s.rioSeasonSlug).filter((s): s is string => !!s);
+}
+
+/** Map from our internal season slug to RIO season slug */
+export function getRioSeasonSlug(internalSlug: string): string | undefined {
+  return SEASONS.find((s) => s.slug === internalSlug)?.rioSeasonSlug;
+}
+
+/** Map from RIO season slug to our internal season slug */
+export function getInternalSeasonSlug(rioSeasonSlug: string): string | undefined {
+  return SEASONS.find((s) => s.rioSeasonSlug === rioSeasonSlug)?.slug;
+}
+
+/** Get all tracked encounter IDs grouped by zone ID */
+export function getZoneEncounterMapping(): Map<number, SeasonDef> {
+  const map = new Map<number, SeasonDef>();
+  for (const season of SEASONS) {
+    for (const zoneId of season.raidWclZoneIds) {
+      map.set(zoneId, season);
+    }
+  }
+  return map;
 }

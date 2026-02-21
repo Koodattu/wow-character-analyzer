@@ -222,3 +222,83 @@ export async function fetchRaiderioHistoricalScores(
     scores: s.scores,
   }));
 }
+
+// ─── Fetch Season-Specific Best Runs ───────────────────────────────────
+/**
+ * Fetch best + alternate runs for a specific historical M+ season.
+ * Returns best run per dungeon (fortified + tyrannical).
+ */
+export async function fetchRaiderioSeasonBestRuns(
+  characterName: string,
+  realmSlug: string,
+  region: string = "eu",
+  seasonSlug: string,
+): Promise<{ bestRuns: RaiderioMythicPlusRun[]; alternateRuns: RaiderioMythicPlusRun[] }> {
+  const fields = [`mythic_plus_best_runs:all:${seasonSlug}`, `mythic_plus_alternate_runs:all:${seasonSlug}`].join(",");
+
+  const url = `${RAIDERIO_BASE}/characters/profile?region=${region}&realm=${realmSlug}&name=${encodeURIComponent(characterName)}&fields=${fields}`;
+  const data = await raiderioFetch(url);
+
+  if (!data) return { bestRuns: [], alternateRuns: [] };
+
+  return {
+    bestRuns: data.mythic_plus_best_runs ?? [],
+    alternateRuns: data.mythic_plus_alternate_runs ?? [],
+  };
+}
+
+// ─── M+ Static Data (Dungeon Pools per Season) ────────────────────────
+
+export interface RaiderioMplusSeason {
+  slug: string;
+  name: string;
+  short_name: string;
+  blizzard_season_id: number;
+  is_main_season: boolean;
+  starts: { us?: string; eu?: string; tw?: string; kr?: string; cn?: string };
+  ends: { us?: string; eu?: string; tw?: string; kr?: string; cn?: string };
+  dungeons: Array<{
+    id: number;
+    challenge_mode_id: number;
+    slug: string;
+    name: string;
+    short_name: string;
+    keystone_timer_seconds: number;
+    icon_url: string;
+    background_image_url: string;
+  }>;
+}
+
+/**
+ * Fetch M+ static data (seasons & dungeon pools) for a given expansion.
+ * expansion_id: 11 = Midnight, 10 = TheWarWithin, 9 = Dragonflight
+ */
+export async function fetchMythicPlusStaticData(expansionId: number): Promise<RaiderioMplusSeason[]> {
+  const url = `${RAIDERIO_BASE}/mythic-plus/static-data?expansion_id=${expansionId}`;
+  const data = await raiderioFetch(url);
+
+  if (!data?.seasons) {
+    log.warn({ expansionId }, "No M+ season data returned from Raider.IO");
+    return [];
+  }
+
+  return data.seasons.map((s: any) => ({
+    slug: s.slug,
+    name: s.name,
+    short_name: s.short_name,
+    blizzard_season_id: s.blizzard_season_id,
+    is_main_season: s.is_main_season ?? false,
+    starts: s.starts ?? {},
+    ends: s.ends ?? {},
+    dungeons: (s.dungeons ?? []).map((d: any) => ({
+      id: d.id,
+      challenge_mode_id: d.challenge_mode_id,
+      slug: d.slug,
+      name: d.name,
+      short_name: d.short_name,
+      keystone_timer_seconds: d.keystone_timer_seconds,
+      icon_url: d.icon_url,
+      background_image_url: d.background_image_url,
+    })),
+  }));
+}

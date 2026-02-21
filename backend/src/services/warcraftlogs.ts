@@ -138,6 +138,76 @@ export async function fetchEncounterRankings(
   }
 }
 
+// ─── Batched Encounter Rankings (Efficient Lightweight Scan) ───────────
+// Fetches ALL encounters for a raid zone in a single GraphQL query using
+// aliases. This is dramatically more efficient than one query per boss.
+
+const MAX_ENCOUNTERS_PER_BATCH = 12; // WCL handles ~12 aliases well
+
+/**
+ * Fetch encounter rankings for multiple encounters in a single GraphQL query.
+ * Uses aliases to batch up to MAX_ENCOUNTERS_PER_BATCH encounters per request.
+ * Returns a Map of encounterId → WclEncounterRanking.
+ */
+export async function fetchBatchedEncounterRankings(
+  characterName: string,
+  serverSlug: string,
+  serverRegion: string,
+  encounterIds: number[],
+  difficulty: number = 5,
+): Promise<Map<number, WclEncounterRanking>> {
+  if (encounterIds.length === 0) return new Map();
+
+  const results = new Map<number, WclEncounterRanking>();
+
+  // Batch encounters into groups
+  for (let i = 0; i < encounterIds.length; i += MAX_ENCOUNTERS_PER_BATCH) {
+    const batch = encounterIds.slice(i, i + MAX_ENCOUNTERS_PER_BATCH);
+
+    const aliasFields = batch.map((id) => `e${id}: encounterRankings(encounterID: ${id}, difficulty: ${difficulty})`).join("\n          ");
+
+    const query = `
+      query ($name: String!, $server: String!, $region: String!) {
+        characterData {
+          character(name: $name, serverSlug: $server, serverRegion: $region) {
+            ${aliasFields}
+          }
+        }
+      }
+    `;
+
+    try {
+      const data = await wclQuery(query, {
+        name: characterName,
+        server: serverSlug,
+        region: serverRegion,
+      });
+
+      const character = data?.characterData?.character;
+      if (!character) {
+        log.warn({ characterName, serverSlug, batchSize: batch.length }, "Character not found on WCL");
+        continue;
+      }
+
+      for (const encounterId of batch) {
+        const rankings = character[`e${encounterId}`];
+        if (rankings && rankings.totalKills > 0) {
+          results.set(encounterId, rankings);
+        }
+      }
+
+      log.debug(
+        { characterName, batchIndex: Math.floor(i / MAX_ENCOUNTERS_PER_BATCH), encounterCount: batch.length, resultsCount: results.size },
+        "Batched WCL rankings fetch complete",
+      );
+    } catch (error) {
+      log.error({ err: error, characterName, batchSize: batch.length }, "Batched WCL rankings fetch failed");
+    }
+  }
+
+  return results;
+}
+
 // ─── Report Details (Deep Scan) ────────────────────────────────────────
 export interface WclReportFight {
   id: number;

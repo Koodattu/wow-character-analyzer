@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import { api } from "@/lib/api";
@@ -11,10 +11,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { Shield, Skull, Swords, Trophy, Brain, Activity, Timer, TrendingUp, TrendingDown, AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
 
-// ─── Types ─────────────────────────────────────────────────────────────
+// --- Types ------------------------------------------------------------------
 
 interface Character {
   id: string;
@@ -57,26 +59,17 @@ interface Profile {
   updatedAt: string;
 }
 
-interface BossStat {
+interface ProcessingState {
   id: string;
   characterId: string;
-  bossId: string | null;
-  encounterId: number | null;
-  bossName: string;
-  raidName: string;
-  kills: number | null;
-  bestParse: number | null;
-  medianParse: number | null;
-  worstParse: number | null;
-  avgParse: number | null;
-  totalDeaths: number | null;
-  avgDeathsPerKill: number | null;
-  firstDeathRate: number | null;
-  avgTimeOfDeath: number | null;
-  defensiveUsageRate: number | null;
-  healthstoneUsageRate: number | null;
-  healthPotionUsageRate: number | null;
-  parseTier: string | null;
+  lightweightStatus: string | null;
+  deepScanStatus: string | null;
+  currentStep: string | null;
+  stepsCompleted: string[];
+  totalSteps: number | null;
+  errorMessage: string | null;
+  lightweightCompletedAt: string | null;
+  deepScanCompletedAt: string | null;
   updatedAt: string;
 }
 
@@ -94,68 +87,6 @@ interface AiSummary {
   updatedAt: string;
 }
 
-interface ProcessingState {
-  id: string;
-  characterId: string;
-  lightweightStatus: string | null;
-  deepScanStatus: string | null;
-  currentStep: string | null;
-  stepsCompleted: string[];
-  totalSteps: number | null;
-  errorMessage: string | null;
-  lightweightCompletedAt: string | null;
-  deepScanCompletedAt: string | null;
-  updatedAt: string;
-}
-
-interface Parse {
-  id: string;
-  characterId: string;
-  fightId: string | null;
-  encounterId: number | null;
-  difficulty: number | null;
-  reportCode: string | null;
-  wclFightId: number | null;
-  percentile: number | null;
-  dps: number | null;
-  hps: number | null;
-  spec: string | null;
-  ilvl: number | null;
-  duration: number | null;
-  killOrWipe: string | null;
-  startTime: string | null;
-  rawData: unknown;
-  createdAt: string;
-}
-
-interface MythicPlusScore {
-  id: string;
-  characterId: string;
-  seasonSlug: string | null;
-  overallScore: number | null;
-  tankScore: number | null;
-  healerScore: number | null;
-  dpsScore: number | null;
-  rawData: unknown;
-  createdAt: string;
-}
-
-interface MythicPlusRun {
-  id: string;
-  characterId: string;
-  seasonSlug: string | null;
-  dungeonName: string | null;
-  dungeonSlug: string | null;
-  keyLevel: number | null;
-  score: number | null;
-  timed: boolean | null;
-  completedAt: string | null;
-  numKeystoneUpgrades: number | null;
-  duration: number | null;
-  rawData: unknown;
-  createdAt: string;
-}
-
 interface Achievement {
   id: string;
   characterId: string;
@@ -167,23 +98,97 @@ interface Achievement {
   createdAt: string;
 }
 
+// -- Structured raid types ---------------------------------------------------
+
+interface BossSpec {
+  spec: string;
+  kills: number;
+  bestParse: number | null;
+  medianParse: number | null;
+  avgParse: number | null;
+}
+
+interface BossData {
+  id: string;
+  name: string;
+  slug: string;
+  iconUrl: string | null;
+  encounterId: number | null;
+  totalKills: number;
+  bestParse: number | null;
+  medianParse: number | null;
+  avgParse: number | null;
+  specs: BossSpec[];
+  recentKills: Array<{
+    percentile: number | null;
+    dps: number | null;
+    spec: string | null;
+    ilvl: number | null;
+    duration: number | null;
+    startTime: string | null;
+    reportCode: string | null;
+  }>;
+}
+
+interface RaidData {
+  id: string;
+  name: string;
+  slug: string;
+  iconUrl: string | null;
+  bosses: BossData[];
+}
+
+interface ExpansionData {
+  id: string;
+  name: string;
+  slug: string;
+  raids: RaidData[];
+}
+
+// -- Structured M+ types ----------------------------------------------------
+
+interface MplusDungeon {
+  name: string;
+  slug: string | null;
+  bestRun: {
+    keyLevel: number | null;
+    score: number | null;
+    timed: boolean | null;
+    upgrades: number | null;
+    duration: number | null;
+    completedAt: string | null;
+  } | null;
+  totalRuns: number;
+  timedRuns: number;
+  depletedRuns: number;
+}
+
+interface MplusSeason {
+  seasonSlug: string;
+  score: {
+    overall: number | null;
+    tank: number;
+    healer: number;
+    dps: number;
+  } | null;
+  dungeons: MplusDungeon[];
+}
+
 interface CharacterData {
   character: Character | null;
   profile: Profile | null;
-  bossStats: BossStat[];
   aiSummary: AiSummary | null;
   processing: ProcessingState | null;
-  parses: Parse[];
-  mythicPlusScores: MythicPlusScore[];
-  mythicPlusRuns: MythicPlusRun[];
   achievements: Achievement[];
+  raidData: ExpansionData[];
+  mythicPlusData: { seasons: MplusSeason[] };
   error?: string;
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────
+// --- Helpers ----------------------------------------------------------------
 
 function formatDuration(ms: number | null | undefined): string {
-  if (!ms) return "—";
+  if (!ms) return "\u2014";
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
@@ -191,17 +196,12 @@ function formatDuration(ms: number | null | undefined): string {
 }
 
 function formatNumber(n: number | null | undefined, decimals = 1): string {
-  if (n === null || n === undefined) return "—";
+  if (n === null || n === undefined) return "\u2014";
   return n.toFixed(decimals);
 }
 
-function formatPercent(n: number | null | undefined): string {
-  if (n === null || n === undefined) return "—";
-  return `${(n * 100).toFixed(1)}%`;
-}
-
 function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "—";
+  if (!dateStr) return "\u2014";
   return new Date(dateStr).toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -228,7 +228,15 @@ function getMplusScoreColor(score: number | null | undefined): string {
   return "#666666";
 }
 
-// ─── Page Component ────────────────────────────────────────────────────
+/** Turn "season-tww-3" into "TWW Season 3" */
+function formatSeasonSlug(slug: string): string {
+  const match = slug.match(/^season-(\w+)-(\d+)$/);
+  if (match) return `${match[1].toUpperCase()} Season ${match[2]}`;
+  if (slug === "current") return "Current Season";
+  return slug;
+}
+
+// --- Page Component ---------------------------------------------------------
 
 export default function CharacterProfilePage() {
   const params = useParams();
@@ -238,6 +246,7 @@ export default function CharacterProfilePage() {
   const [data, setData] = useState<CharacterData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSpec, setSelectedSpec] = useState("all");
 
   const fetchCharacter = useCallback(async () => {
     if (!realm || !name) {
@@ -245,18 +254,12 @@ export default function CharacterProfilePage() {
       setLoading(false);
       return;
     }
-
     try {
       const response = await api.api.characters[realm][name].get();
-
       if (response.data) {
         const d = response.data as unknown as CharacterData;
         setData(d);
-        if (d.error && !d.character) {
-          setError(d.error);
-        } else {
-          setError(null);
-        }
+        setError(d.error && !d.character ? d.error : null);
       } else {
         setError("Failed to fetch character data");
       }
@@ -273,23 +276,37 @@ export default function CharacterProfilePage() {
 
   useEffect(() => {
     if (!realm || !name) return;
-
     const stream = openEventSource(`/api/characters/${encodeURIComponent(realm)}/${encodeURIComponent(name)}/stream`);
-
     return bindJsonSseEvents<CharacterData>(stream, (payload) => {
       setData(payload);
-
-      if (payload.error && !payload.character) {
-        setError(payload.error);
-      } else {
-        setError(null);
-      }
-
+      setError(payload.error && !payload.character ? payload.error : null);
       setLoading(false);
     });
   }, [realm, name]);
 
-  // ─── Loading State ─────────────────────────────────────────────────
+  // Unique specs across all bosses
+  const allSpecs = useMemo(() => {
+    if (!data?.raidData) return [];
+    const s = new Set<string>();
+    for (const exp of data.raidData) for (const raid of exp.raids) for (const boss of raid.bosses) for (const sp of boss.specs) s.add(sp.spec);
+    return [...s].sort();
+  }, [data?.raidData]);
+
+  // Default expansion tab: first with kills
+  const defaultExpansionSlug = useMemo(() => {
+    if (!data?.raidData) return undefined;
+    for (const exp of data.raidData) for (const raid of exp.raids) if (raid.bosses.some((b) => b.totalKills > 0)) return exp.slug;
+    return data.raidData[0]?.slug;
+  }, [data?.raidData]);
+
+  // Default M+ season tab: first with a score
+  const defaultMplusSeason = useMemo(() => {
+    if (!data?.mythicPlusData?.seasons?.length) return undefined;
+    const withScore = data.mythicPlusData.seasons.find((s) => s.score && (s.score.overall ?? 0) > 0);
+    return withScore?.seasonSlug ?? data.mythicPlusData.seasons[0]?.seasonSlug;
+  }, [data?.mythicPlusData?.seasons]);
+
+  // --- Loading ---
   if (loading) {
     return (
       <div className="container mx-auto max-w-screen-2xl px-4 py-8 space-y-6">
@@ -311,7 +328,7 @@ export default function CharacterProfilePage() {
     );
   }
 
-  // ─── Not Found ─────────────────────────────────────────────────────
+  // --- Not Found ---
   if (error || !data?.character) {
     return (
       <div className="container mx-auto max-w-screen-2xl px-4 py-16 flex flex-col items-center justify-center gap-4">
@@ -322,32 +339,32 @@ export default function CharacterProfilePage() {
     );
   }
 
-  const { character, profile, bossStats, aiSummary, processing, mythicPlusScores, mythicPlusRuns, achievements } = data;
-
-  // Group boss stats by raid
-  const bossStatsByRaid = bossStats.reduce<Record<string, BossStat[]>>((acc, boss) => {
-    const raid = boss.raidName || "Unknown Raid";
-    if (!acc[raid]) acc[raid] = [];
-    acc[raid].push(boss);
-    return acc;
-  }, {});
-
+  const { character, profile, aiSummary, processing, achievements, raidData, mythicPlusData } = data;
   const cuttingEdge = achievements.filter((a) => a.type === "cutting_edge");
   const aheadOfTheCurve = achievements.filter((a) => a.type === "ahead_of_the_curve");
+  const hasRaidKills = raidData.some((exp) => exp.raids.some((r) => r.bosses.some((b) => b.totalKills > 0)));
 
-  const currentScore = mythicPlusScores.length > 0 ? mythicPlusScores[0] : null;
+  function getBossDisplay(boss: BossData) {
+    if (selectedSpec === "all") {
+      return {
+        kills: boss.totalKills,
+        best: boss.bestParse,
+        median: boss.medianParse,
+        avg: boss.avgParse,
+      };
+    }
+    const sp = boss.specs.find((s) => s.spec === selectedSpec);
+    if (!sp) return { kills: 0, best: null, median: null, avg: null };
+    return { kills: sp.kills, best: sp.bestParse, median: sp.medianParse, avg: sp.avgParse };
+  }
 
   return (
     <div className="container mx-auto max-w-screen-2xl px-4 py-8 space-y-8">
-      {/* ── Header Section ──────────────────────────────────────────── */}
+      {/* -- Header --------------------------------------------------------- */}
       <div
         className="flex flex-col sm:flex-row items-start sm:items-center gap-6 rounded-xl border p-6"
-        style={{
-          borderColor: getFactionColor(character.faction),
-          borderWidth: 2,
-        }}
+        style={{ borderColor: getFactionColor(character.faction), borderWidth: 2 }}
       >
-        {/* Profile picture */}
         <div className="relative shrink-0">
           {character.profilePicUrl ? (
             <Image src={character.profilePicUrl} alt={character.name} width={96} height={96} className="h-24 w-24 rounded-full object-cover ring-2 ring-border" />
@@ -366,7 +383,6 @@ export default function CharacterProfilePage() {
           )}
         </div>
 
-        {/* Character info */}
         <div className="flex-1 space-y-1">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-3xl font-bold tracking-tight" style={{ color: getClassColor(character.className) }}>
@@ -385,12 +401,8 @@ export default function CharacterProfilePage() {
               </Badge>
             )}
           </div>
-
           {character.guild && <p className="text-muted-foreground">&lt;{character.guild}&gt;</p>}
-
           <p className="text-sm text-muted-foreground">{[character.race, character.specName, character.className].filter(Boolean).join(" ")}</p>
-
-          {/* Quick stats */}
           {profile && (
             <div className="flex items-center gap-4 pt-2 flex-wrap">
               {profile.bestParse !== null && (
@@ -415,12 +427,7 @@ export default function CharacterProfilePage() {
                 <div className="flex items-center gap-1.5">
                   <Swords className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">M+:</span>
-                  <span
-                    className="text-sm font-semibold"
-                    style={{
-                      color: getMplusScoreColor(profile.currentMplusScore),
-                    }}
-                  >
+                  <span className="text-sm font-semibold" style={{ color: getMplusScoreColor(profile.currentMplusScore) }}>
                     {formatNumber(profile.currentMplusScore, 0)}
                   </span>
                 </div>
@@ -437,7 +444,7 @@ export default function CharacterProfilePage() {
         </div>
       </div>
 
-      {/* ── Processing Status Banner ────────────────────────────────── */}
+      {/* -- Processing Banner ---------------------------------------------- */}
       {processing &&
         (processing.lightweightStatus === "in_progress" ||
           processing.lightweightStatus === "pending" ||
@@ -445,9 +452,7 @@ export default function CharacterProfilePage() {
           processing.deepScanStatus === "pending") && (
           <Card className="border-primary/50 bg-primary/5">
             <CardContent className="flex items-center gap-4 py-4">
-              <div className="relative shrink-0">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              </div>
+              <Loader2 className="h-6 w-6 animate-spin text-primary shrink-0" />
               <div className="flex-1 space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-foreground">{processing.currentStep ?? "Processing character data..."}</p>
@@ -470,13 +475,31 @@ export default function CharacterProfilePage() {
         </Card>
       )}
 
-      {/* ── Raid Performance ─────────────────────────────────────── */}
-      <section className="space-y-6">
-        <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
-          <Swords className="h-5 w-5" />
-          Raid Performance
-        </h2>
-        {Object.keys(bossStatsByRaid).length === 0 ? (
+      {/* -- Raid Performance (Expansion Tabs) ------------------------------ */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
+            <Swords className="h-5 w-5" />
+            Raid Performance
+          </h2>
+          {allSpecs.length > 0 && (
+            <Select value={selectedSpec} onValueChange={setSelectedSpec}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Spec filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Specs</SelectItem>
+                {allSpecs.map((spec) => (
+                  <SelectItem key={spec} value={spec}>
+                    {spec}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+
+        {!hasRaidKills ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Swords className="h-12 w-12 text-muted-foreground/40 mb-3" />
@@ -484,292 +507,221 @@ export default function CharacterProfilePage() {
             </CardContent>
           </Card>
         ) : (
-          Object.entries(bossStatsByRaid).map(([raidName, bosses]) => (
-            <Card key={raidName}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Swords className="h-5 w-5" />
-                  {raidName}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-muted-foreground">
-                        <th className="text-left py-2 pr-4 font-medium">Boss</th>
-                        <th className="text-center py-2 px-2 font-medium">Kills</th>
-                        <th className="text-center py-2 px-2 font-medium">Best</th>
-                        <th className="text-center py-2 px-2 font-medium">Median</th>
-                        <th className="text-center py-2 px-2 font-medium">Avg</th>
-                        <th className="text-center py-2 px-2 font-medium">Deaths</th>
-                        <th className="text-center py-2 px-2 font-medium">Avg/Kill</th>
-                        <th className="text-center py-2 px-2 font-medium">1st Death%</th>
-                        <th className="text-center py-2 px-2 font-medium">Def%</th>
-                        <th className="text-center py-2 px-2 font-medium">HS%</th>
-                        <th className="text-center py-2 px-2 font-medium">HP%</th>
-                        <th className="text-center py-2 px-2 font-medium">Tier</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bosses.map((boss) => {
-                        const tier = getParseTier(boss.bestParse);
-                        return (
-                          <tr key={boss.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
-                            <td className="py-2.5 pr-4 font-medium text-foreground">{boss.bossName}</td>
-                            <td className="text-center py-2.5 px-2 text-muted-foreground">{boss.kills ?? 0}</td>
-                            <td className="text-center py-2.5 px-2">
-                              <span
-                                className="font-semibold"
-                                style={{
-                                  color: getParseColor(boss.bestParse),
-                                }}
-                              >
-                                {formatNumber(boss.bestParse)}
-                              </span>
-                            </td>
-                            <td className="text-center py-2.5 px-2">
-                              <span
-                                style={{
-                                  color: getParseColor(boss.medianParse),
-                                }}
-                              >
-                                {formatNumber(boss.medianParse)}
-                              </span>
-                            </td>
-                            <td className="text-center py-2.5 px-2">
-                              <span
-                                style={{
-                                  color: getParseColor(boss.avgParse),
-                                }}
-                              >
-                                {formatNumber(boss.avgParse)}
-                              </span>
-                            </td>
-                            <td className="text-center py-2.5 px-2 text-muted-foreground">{boss.totalDeaths ?? 0}</td>
-                            <td className="text-center py-2.5 px-2 text-muted-foreground">{formatNumber(boss.avgDeathsPerKill, 2)}</td>
-                            <td className="text-center py-2.5 px-2 text-muted-foreground">{formatPercent(boss.firstDeathRate)}</td>
-                            <td className="text-center py-2.5 px-2 text-muted-foreground">{formatPercent(boss.defensiveUsageRate)}</td>
-                            <td className="text-center py-2.5 px-2 text-muted-foreground">{formatPercent(boss.healthstoneUsageRate)}</td>
-                            <td className="text-center py-2.5 px-2 text-muted-foreground">{formatPercent(boss.healthPotionUsageRate)}</td>
-                            <td className="text-center py-2.5 px-2">
-                              <Badge
-                                variant="outline"
-                                className="text-xs"
-                                style={{
-                                  borderColor: tier.color,
-                                  color: tier.color,
-                                }}
-                              >
-                                {tier.label}
-                              </Badge>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
+          <Tabs defaultValue={defaultExpansionSlug}>
+            <TabsList>
+              {raidData
+                .filter((exp) => exp.raids.some((r) => r.bosses.some((b) => b.totalKills > 0)))
+                .map((exp) => (
+                  <TabsTrigger key={exp.slug} value={exp.slug}>
+                    {exp.name}
+                  </TabsTrigger>
+                ))}
+            </TabsList>
 
-        {/* Overall raid stats summary */}
-        {profile && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Overall Raid Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Kills</p>
-                  <p className="text-2xl font-bold text-foreground">{profile.totalKills ?? 0}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Wipes</p>
-                  <p className="text-2xl font-bold text-foreground">{profile.totalWipes ?? 0}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Deaths</p>
-                  <p className="text-2xl font-bold text-foreground">{profile.totalDeaths ?? 0}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Avg Deaths / Kill</p>
-                  <p className="text-2xl font-bold text-foreground">{formatNumber(profile.avgDeathsPerKill, 2)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            {raidData.map((exp) => (
+              <TabsContent key={exp.slug} value={exp.slug} className="space-y-6 mt-4">
+                {exp.raids
+                  .filter((raid) => raid.bosses.some((b) => b.totalKills > 0))
+                  .map((raid) => (
+                    <Card key={raid.id}>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Swords className="h-5 w-5" />
+                          {raid.name}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b text-muted-foreground">
+                                <th className="text-left py-2 pr-4 font-medium">Boss</th>
+                                <th className="text-center py-2 px-2 font-medium">Kills</th>
+                                <th className="text-center py-2 px-2 font-medium">Best</th>
+                                <th className="text-center py-2 px-2 font-medium">Median</th>
+                                <th className="text-center py-2 px-2 font-medium">Avg</th>
+                                <th className="text-center py-2 px-2 font-medium">Tier</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {raid.bosses.map((boss) => {
+                                const d = getBossDisplay(boss);
+                                const tier = getParseTier(d.best);
+                                return (
+                                  <tr key={boss.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                                    <td className="py-2.5 pr-4 font-medium text-foreground">{boss.name}</td>
+                                    <td className="text-center py-2.5 px-2 text-muted-foreground">{d.kills}</td>
+                                    <td className="text-center py-2.5 px-2">
+                                      <span className="font-semibold" style={{ color: getParseColor(d.best) }}>
+                                        {formatNumber(d.best)}
+                                      </span>
+                                    </td>
+                                    <td className="text-center py-2.5 px-2">
+                                      <span style={{ color: getParseColor(d.median) }}>{formatNumber(d.median)}</span>
+                                    </td>
+                                    <td className="text-center py-2.5 px-2">
+                                      <span style={{ color: getParseColor(d.avg) }}>{formatNumber(d.avg)}</span>
+                                    </td>
+                                    <td className="text-center py-2.5 px-2">
+                                      <Badge variant="outline" className="text-xs" style={{ borderColor: tier.color, color: tier.color }}>
+                                        {tier.label}
+                                      </Badge>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+              </TabsContent>
+            ))}
+          </Tabs>
         )}
       </section>
 
-      {/* ── Mythic+ ──────────────────────────────────────────────── */}
-      <section className="space-y-6">
+      {/* -- Mythic+ (Season Tabs) ------------------------------------------ */}
+      <section className="space-y-4">
         <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
           <Timer className="h-5 w-5" />
           Mythic+
         </h2>
-        {/* Current M+ Score */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Timer className="h-5 w-5" />
-              Mythic+ Score
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {profile?.currentMplusScore != null ? (
-              <div className="space-y-4">
-                <div className="flex items-baseline gap-3">
-                  <span
-                    className="text-5xl font-black tracking-tight"
-                    style={{
-                      color: getMplusScoreColor(profile.currentMplusScore),
-                    }}
-                  >
-                    {Math.round(profile.currentMplusScore)}
-                  </span>
-                  <span className="text-lg text-muted-foreground">overall</span>
-                </div>
 
-                {currentScore && (
-                  <div className="flex items-center gap-6 flex-wrap">
-                    {currentScore.dpsScore != null && currentScore.dpsScore > 0 && (
-                      <div className="flex items-center gap-1.5">
-                        <Swords className="h-4 w-4 text-red-400" />
-                        <span className="text-sm text-muted-foreground">DPS:</span>
-                        <span className="text-sm font-semibold text-foreground">{Math.round(currentScore.dpsScore)}</span>
-                      </div>
-                    )}
-                    {currentScore.healerScore != null && currentScore.healerScore > 0 && (
-                      <div className="flex items-center gap-1.5">
-                        <Activity className="h-4 w-4 text-green-400" />
-                        <span className="text-sm text-muted-foreground">Healer:</span>
-                        <span className="text-sm font-semibold text-foreground">{Math.round(currentScore.healerScore)}</span>
-                      </div>
-                    )}
-                    {currentScore.tankScore != null && currentScore.tankScore > 0 && (
-                      <div className="flex items-center gap-1.5">
-                        <Shield className="h-4 w-4 text-blue-400" />
-                        <span className="text-sm text-muted-foreground">Tank:</span>
-                        <span className="text-sm font-semibold text-foreground">{Math.round(currentScore.tankScore)}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {profile.totalRuns != null && (
-                  <div className="flex items-center gap-6 pt-2 border-t border-border/50">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm text-muted-foreground">Total Runs:</span>
-                      <span className="text-sm font-semibold text-foreground">{profile.totalRuns}</span>
-                    </div>
-                    {profile.timedRate != null && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm text-muted-foreground">Timed:</span>
-                        <span className="text-sm font-semibold text-foreground">{(profile.timedRate * 100).toFixed(1)}%</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center py-8">
-                <Timer className="h-12 w-12 text-muted-foreground/40 mb-3" />
-                <p className="text-muted-foreground">No M+ data available.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Best Runs */}
-        {mythicPlusRuns.length > 0 && (
+        {mythicPlusData.seasons.length === 0 ? (
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Best Runs</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-muted-foreground">
-                      <th className="text-left py-2 pr-4 font-medium">Dungeon</th>
-                      <th className="text-center py-2 px-2 font-medium">Key</th>
-                      <th className="text-center py-2 px-2 font-medium">Score</th>
-                      <th className="text-center py-2 px-2 font-medium">Timed</th>
-                      <th className="text-center py-2 px-2 font-medium">Upgrades</th>
-                      <th className="text-center py-2 px-2 font-medium">Duration</th>
-                      <th className="text-right py-2 pl-2 font-medium">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mythicPlusRuns.map((run) => (
-                      <tr key={run.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
-                        <td className="py-2.5 pr-4 font-medium text-foreground">{run.dungeonName ?? "Unknown"}</td>
-                        <td className="text-center py-2.5 px-2 font-semibold text-foreground">+{run.keyLevel}</td>
-                        <td className="text-center py-2.5 px-2">
-                          <span
-                            className="font-semibold"
-                            style={{
-                              color: getMplusScoreColor(run.score),
-                            }}
-                          >
-                            {formatNumber(run.score, 1)}
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <Timer className="h-12 w-12 text-muted-foreground/40 mb-3" />
+              <p className="text-muted-foreground">No M+ data available yet.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Tabs defaultValue={defaultMplusSeason}>
+            <TabsList>
+              {mythicPlusData.seasons.map((season) => (
+                <TabsTrigger key={season.seasonSlug} value={season.seasonSlug}>
+                  {formatSeasonSlug(season.seasonSlug)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            {mythicPlusData.seasons.map((season) => (
+              <TabsContent key={season.seasonSlug} value={season.seasonSlug} className="space-y-4 mt-4">
+                {/* Season score */}
+                {season.score && (season.score.overall ?? 0) > 0 && (
+                  <Card>
+                    <CardContent className="py-5">
+                      <div className="flex items-center gap-6 flex-wrap">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-4xl font-black tracking-tight" style={{ color: getMplusScoreColor(season.score.overall) }}>
+                            {Math.round(season.score.overall ?? 0)}
                           </span>
-                        </td>
-                        <td className="text-center py-2.5 px-2">
-                          {run.timed ? (
-                            <Badge variant="outline" className="border-green-500 text-green-500 text-xs">
-                              Timed
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="border-red-500 text-red-500 text-xs">
-                              Depleted
-                            </Badge>
+                          <span className="text-sm text-muted-foreground">overall</span>
+                        </div>
+                        <div className="flex items-center gap-5 flex-wrap">
+                          {season.score.dps > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <Swords className="h-4 w-4 text-red-400" />
+                              <span className="text-sm text-muted-foreground">DPS:</span>
+                              <span className="text-sm font-semibold text-foreground">{Math.round(season.score.dps)}</span>
+                            </div>
                           )}
-                        </td>
-                        <td className="text-center py-2.5 px-2 text-muted-foreground">{run.numKeystoneUpgrades != null ? `+${run.numKeystoneUpgrades}` : "—"}</td>
-                        <td className="text-center py-2.5 px-2 text-muted-foreground">{formatDuration(run.duration)}</td>
-                        <td className="text-right py-2.5 pl-2 text-muted-foreground">{formatDate(run.completedAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                          {season.score.healer > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <Activity className="h-4 w-4 text-green-400" />
+                              <span className="text-sm text-muted-foreground">Healer:</span>
+                              <span className="text-sm font-semibold text-foreground">{Math.round(season.score.healer)}</span>
+                            </div>
+                          )}
+                          {season.score.tank > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <Shield className="h-4 w-4 text-blue-400" />
+                              <span className="text-sm text-muted-foreground">Tank:</span>
+                              <span className="text-sm font-semibold text-foreground">{Math.round(season.score.tank)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
-        {/* Historical Scores */}
-        {mythicPlusScores.length > 1 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Score History</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {mythicPlusScores.map((score) => (
-                  <div key={score.id} className="flex items-center justify-between rounded-lg border border-border/50 px-4 py-2.5">
-                    <span className="text-sm text-muted-foreground">{score.seasonSlug ?? "Unknown Season"}</span>
-                    <span
-                      className="text-sm font-semibold"
-                      style={{
-                        color: getMplusScoreColor(score.overallScore),
-                      }}
-                    >
-                      {formatNumber(score.overallScore, 0)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                {/* Dungeon table */}
+                {season.dungeons.length > 0 ? (
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b text-muted-foreground">
+                              <th className="text-left py-2 pr-4 font-medium">Dungeon</th>
+                              <th className="text-center py-2 px-2 font-medium">Best Key</th>
+                              <th className="text-center py-2 px-2 font-medium">Score</th>
+                              <th className="text-center py-2 px-2 font-medium">Timed</th>
+                              <th className="text-center py-2 px-2 font-medium">Runs</th>
+                              <th className="text-center py-2 px-2 font-medium">In Time</th>
+                              <th className="text-center py-2 px-2 font-medium">Depleted</th>
+                              <th className="text-center py-2 px-2 font-medium">Duration</th>
+                              <th className="text-right py-2 pl-2 font-medium">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {season.dungeons.map((dg) => (
+                              <tr key={dg.name} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                                <td className="py-2.5 pr-4 font-medium text-foreground">{dg.name}</td>
+                                <td className="text-center py-2.5 px-2 font-semibold text-foreground">{dg.bestRun ? `+${dg.bestRun.keyLevel}` : "\u2014"}</td>
+                                <td className="text-center py-2.5 px-2">
+                                  <span
+                                    className="font-semibold"
+                                    style={{
+                                      color: getMplusScoreColor(dg.bestRun?.score),
+                                    }}
+                                  >
+                                    {dg.bestRun ? formatNumber(dg.bestRun.score, 1) : "\u2014"}
+                                  </span>
+                                </td>
+                                <td className="text-center py-2.5 px-2">
+                                  {dg.bestRun ? (
+                                    dg.bestRun.timed ? (
+                                      <Badge variant="outline" className="border-green-500 text-green-500 text-xs">
+                                        Timed
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="border-red-500 text-red-500 text-xs">
+                                        Depleted
+                                      </Badge>
+                                    )
+                                  ) : (
+                                    "\u2014"
+                                  )}
+                                </td>
+                                <td className="text-center py-2.5 px-2 text-muted-foreground">{dg.totalRuns}</td>
+                                <td className="text-center py-2.5 px-2 text-green-400">{dg.timedRuns}</td>
+                                <td className="text-center py-2.5 px-2 text-red-400">{dg.depletedRuns}</td>
+                                <td className="text-center py-2.5 px-2 text-muted-foreground">{formatDuration(dg.bestRun?.duration)}</td>
+                                <td className="text-right py-2.5 pl-2 text-muted-foreground">{formatDate(dg.bestRun?.completedAt)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-8">
+                      <p className="text-muted-foreground">No dungeon runs recorded for this season.</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+            ))}
+          </Tabs>
         )}
       </section>
 
-      {/* ── Achievements ─────────────────────────────────────────── */}
+      {/* -- Achievements --------------------------------------------------- */}
       <section className="space-y-6">
         <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
           <Trophy className="h-5 w-5" />
@@ -806,7 +758,6 @@ export default function CharacterProfilePage() {
                 </CardContent>
               </Card>
             )}
-
             {aheadOfTheCurve.length > 0 && (
               <Card>
                 <CardHeader>
@@ -833,7 +784,7 @@ export default function CharacterProfilePage() {
         )}
       </section>
 
-      {/* ── AI Summary ───────────────────────────────────────────── */}
+      {/* -- AI Summary ----------------------------------------------------- */}
       <section className="space-y-6">
         <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
           <Brain className="h-5 w-5" />
@@ -841,7 +792,6 @@ export default function CharacterProfilePage() {
         </h2>
         {aiSummary ? (
           <>
-            {/* Verdict */}
             {aiSummary.verdict && (
               <Card className="border-primary/30 bg-primary/5">
                 <CardContent className="py-5">
@@ -855,8 +805,6 @@ export default function CharacterProfilePage() {
                 </CardContent>
               </Card>
             )}
-
-            {/* Summary */}
             {aiSummary.summary && (
               <Card>
                 <CardContent className="py-5">
@@ -864,10 +812,7 @@ export default function CharacterProfilePage() {
                 </CardContent>
               </Card>
             )}
-
-            {/* Strengths / Improvements / Pitfalls */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Strengths */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base text-green-400">
@@ -890,8 +835,6 @@ export default function CharacterProfilePage() {
                   )}
                 </CardContent>
               </Card>
-
-              {/* Improvements */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base text-yellow-400">
@@ -914,8 +857,6 @@ export default function CharacterProfilePage() {
                   )}
                 </CardContent>
               </Card>
-
-              {/* Pitfalls */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base text-red-400">
@@ -939,7 +880,6 @@ export default function CharacterProfilePage() {
                 </CardContent>
               </Card>
             </div>
-
             {aiSummary.modelUsed && (
               <p className="text-xs text-muted-foreground text-right">
                 Generated by {aiSummary.modelUsed} on {formatDate(aiSummary.generatedAt)}

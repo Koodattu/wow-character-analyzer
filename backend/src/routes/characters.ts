@@ -1,11 +1,10 @@
 // ─── Character Routes ──────────────────────────────────────────────────
 import { Elysia, t } from "elysia";
-import { eq, and, ilike, or, desc, sql, inArray, ne } from "drizzle-orm";
+import { eq, and, ilike, or, desc, sql, inArray, ne, asc } from "drizzle-orm";
 import { db } from "../db";
 import {
   characters,
   characterProfiles,
-  characterBossStats,
   characterAiSummary,
   characterQueue,
   processingState,
@@ -13,6 +12,10 @@ import {
   raiderioScores,
   raiderioRuns,
   blizzardAchievements,
+  expansions,
+  seasons,
+  raids,
+  bosses,
 } from "../db/schema";
 import { authPlugin, requireAuth } from "../auth/middleware";
 import { createId } from "@paralleldrive/cuid2";
@@ -127,9 +130,8 @@ async function getCharacterProfilePayload(realm: string, name: string) {
     return { error: "Character not found", character: null };
   }
 
-  const [profile, bossStatsData, aiSummaryData, processingData, parsesData, scoresData, runsData, achievementsData] = await Promise.all([
+  const [profile, aiSummaryData, processingData, parsesData, scoresData, runsData, achievementsData] = await Promise.all([
     db.select().from(characterProfiles).where(eq(characterProfiles.characterId, char.id)).limit(1),
-    db.select().from(characterBossStats).where(eq(characterBossStats.characterId, char.id)),
     db.select().from(characterAiSummary).where(eq(characterAiSummary.characterId, char.id)).limit(1),
     db.select().from(processingState).where(eq(processingState.characterId, char.id)).limit(1),
     db.select().from(wclParses).where(eq(wclParses.characterId, char.id)).orderBy(desc(wclParses.startTime)),
@@ -138,16 +140,172 @@ async function getCharacterProfilePayload(realm: string, name: string) {
     db.select().from(blizzardAchievements).where(eq(blizzardAchievements.characterId, char.id)),
   ]);
 
+  // ── Build structured raid data ──────────────────────────────────────
+  // Fetch config tables: expansions → seasons → raids → bosses
+  const allExpansions = await db.select().from(expansions).orderBy(desc(expansions.sortOrder));
+  const allSeasons = await db.select().from(seasons);
+  const allRaids = await db.select().from(raids).orderBy(asc(raids.sortOrder));
+  const allBosses = await db.select().from(bosses).orderBy(asc(bosses.sortOrder));
+
+  // Group parses by encounterId for fast lookup
+  const parsesByEncounter = new Map<number, typeof parsesData>();
+  for (const parse of parsesData) {
+    const eid = parse.encounterId;
+    if (!parsesByEncounter.has(eid)) parsesByEncounter.set(eid, []);
+    parsesByEncounter.get(eid)!.push(parse);
+  }
+
+  // Build the nested structure: expansion → raids → bosses
+  const raidData = allExpansions.map((exp) => {
+    const expSeasons = allSeasons.filter((s) => s.expansionId === exp.id);
+    const expSeasonIds = new Set(expSeasons.map((s) => s.id));
+    const expRaids = allRaids.filter((r) => expSeasonIds.has(r.seasonId));
+
+    return {
+      id: exp.id,
+      name: exp.name,
+      slug: exp.slug,
+      raids: expRaids.map((raid) => {
+        const raidBosses = allBosses.filter((b) => b.raidId === raid.id);
+
+        return {
+          id: raid.id,
+          name: raid.name,
+          slug: raid.slug,
+          iconUrl: raid.iconUrl,
+          bosses: raidBosses.map((boss) => {
+            const encounterParses = boss.wclEncounterId ? (parsesByEncounter.get(boss.wclEncounterId) ?? []) : [];
+            const kills = encounterParses.filter((p) => p.killOrWipe === true);
+            const parseValues = kills.map((k) => k.percentile).filter((p): p is number => p !== null);
+            const sorted = [...parseValues].sort((a, b) => a - b);
+
+            // Compute per-spec breakdown
+            const specMap = new Map<string, number[]>();
+            for (const kill of kills) {
+              if (!kill.spec || kill.percentile === null) continue;
+              if (!specMap.has(kill.spec)) specMap.set(kill.spec, []);
+              specMap.get(kill.spec)!.push(kill.percentile);
+            }
+
+            const specs = [...specMap.entries()].map(([spec, values]) => {
+              const specSorted = [...values].sort((a, b) => a - b);
+              return {
+                spec,
+                kills: values.length,
+                bestParse: specSorted.length > 0 ? specSorted[specSorted.length - 1] : null,
+                medianParse: specSorted.length > 0 ? specSorted[Math.floor(specSorted.length / 2)] : null,
+                avgParse: specSorted.length > 0 ? specSorted.reduce((a, b) => a + b, 0) / specSorted.length : null,
+              };
+            });
+
+            return {
+              id: boss.id,
+              name: boss.name,
+              slug: boss.slug,
+              iconUrl: boss.iconUrl,
+              encounterId: boss.wclEncounterId,
+              totalKills: kills.length,
+              bestParse: sorted.length > 0 ? sorted[sorted.length - 1] : null,
+              medianParse: sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : null,
+              avgParse: sorted.length > 0 ? sorted.reduce((a, b) => a + b, 0) / sorted.length : null,
+              specs,
+              recentKills: kills.slice(0, 20).map((k) => ({
+                percentile: k.percentile,
+                dps: k.dps,
+                spec: k.spec,
+                ilvl: k.ilvl,
+                duration: k.duration,
+                startTime: k.startTime,
+                reportCode: k.reportCode,
+              })),
+            };
+          }),
+        };
+      }),
+    };
+  });
+
+  // ── Build structured M+ data ──────────────────────────────────────
+  // Group runs and scores by season slug
+  const scoresBySeasonSlug = new Map<string, (typeof scoresData)[0]>();
+  for (const score of scoresData) {
+    if (score.seasonSlug) scoresBySeasonSlug.set(score.seasonSlug, score);
+  }
+
+  const runsBySeasonSlug = new Map<string, typeof runsData>();
+  for (const run of runsData) {
+    const slug = run.seasonSlug ?? "unknown";
+    if (!runsBySeasonSlug.has(slug)) runsBySeasonSlug.set(slug, []);
+    runsBySeasonSlug.get(slug)!.push(run);
+  }
+
+  // Build M+ season list — use all seasons that have either a score or runs
+  const allSeasonSlugs = new Set([...scoresBySeasonSlug.keys(), ...runsBySeasonSlug.keys()]);
+  const mythicPlusSeasons = [...allSeasonSlugs]
+    .map((seasonSlug) => {
+      const score = scoresBySeasonSlug.get(seasonSlug);
+      const seasonRuns = runsBySeasonSlug.get(seasonSlug) ?? [];
+
+      // Group runs by dungeon name
+      const dungeonMap = new Map<string, typeof seasonRuns>();
+      for (const run of seasonRuns) {
+        const name = run.dungeonName ?? "Unknown";
+        if (!dungeonMap.has(name)) dungeonMap.set(name, []);
+        dungeonMap.get(name)!.push(run);
+      }
+
+      const dungeonData = [...dungeonMap.entries()].map(([name, runs]) => {
+        // Best run = highest score
+        const bestRun = runs.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
+        const timedRuns = runs.filter((r) => r.timed === true).length;
+        const depletedRuns = runs.filter((r) => r.timed === false).length;
+
+        return {
+          name,
+          slug: bestRun?.dungeonSlug ?? null,
+          bestRun: bestRun
+            ? {
+                keyLevel: bestRun.keyLevel,
+                score: bestRun.score,
+                timed: bestRun.timed,
+                upgrades: bestRun.numKeystoneUpgrades,
+                duration: bestRun.duration,
+                completedAt: bestRun.completedAt,
+              }
+            : null,
+          totalRuns: runs.length,
+          timedRuns,
+          depletedRuns,
+        };
+      });
+
+      // Sort dungeons by best key level descending
+      dungeonData.sort((a, b) => (b.bestRun?.keyLevel ?? 0) - (a.bestRun?.keyLevel ?? 0));
+
+      return {
+        seasonSlug,
+        score: score
+          ? {
+              overall: score.overallScore,
+              tank: score.tankScore ?? 0,
+              healer: score.healerScore ?? 0,
+              dps: score.dpsScore ?? 0,
+            }
+          : null,
+        dungeons: dungeonData,
+      };
+    })
+    // Sort by season slug (newest first — raiderio slugs sort lexically)
+    .sort((a, b) => b.seasonSlug.localeCompare(a.seasonSlug));
+
   return {
     character: char,
     profile: profile[0] ?? null,
-    bossStats: bossStatsData,
     aiSummary: aiSummaryData[0] ?? null,
     processing: processingData[0] ?? null,
-    parses: parsesData,
-    mythicPlusScores: scoresData,
-    mythicPlusRuns: runsData,
     achievements: achievementsData,
+    raidData,
+    mythicPlusData: { seasons: mythicPlusSeasons },
   };
 }
 
