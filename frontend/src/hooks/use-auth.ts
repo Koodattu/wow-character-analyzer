@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { api, unwrapOrNull } from "@/lib/api";
 
 interface LinkedProviders {
@@ -26,6 +27,7 @@ interface UnlinkResponse {
 }
 
 export function useAuth() {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -49,7 +51,8 @@ export function useAuth() {
     try {
       await api.api.auth.logout.post();
       setUser(null);
-      window.location.href = "/";
+      router.push("/");
+      router.refresh();
     } catch {
       // Ignore
     }

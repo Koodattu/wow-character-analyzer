@@ -6,7 +6,7 @@
 services:
   # ── PostgreSQL ──────────────────────────────────────────
   db:
-    image: postgres:18-alpine
+    image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -51,7 +51,7 @@ services:
           memory: 242M
     healthcheck:
       test:
-        ["CMD-SHELL", "wget --spider --quiet http://localhost:3001/ || exit 1"]
+        ["CMD-SHELL", "wget --spider --quiet http://localhost:3001/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -73,6 +73,12 @@ services:
     environment:
       # Runtime env var — used by Server Components inside Docker
       INTERNAL_API_URL: http://backend:3001
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits:

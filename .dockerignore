@@ -8,9 +8,12 @@
 frontend/.next
 frontend/out
 backend/dist
+backend/data
+**/*.tsbuildinfo
 
 # Version control
 .git
+**/.git
 **/.gitignore
 
 # Documentation (not needed in images)
@@ -20,18 +23,22 @@ LICENSE
 
 # Environment files (passed via compose, not baked into images)
 .env*
+**/.env*
 !.env.example
 
 # Editor / OS
 .vscode
 .idea
+.github
 .DS_Store
 *.pem
 
 # Docker files themselves
 **/Dockerfile
-docker-compose.yml
+docker-compose*.yml
 docker
+nginx
+init-letsencrypt.sh
 
 # Test / coverage
 **/coverage

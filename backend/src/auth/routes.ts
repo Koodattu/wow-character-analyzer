@@ -264,7 +264,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   })
 
   .get("/discord/callback", async (ctx) => {
-    const { query, cookie, set, redirect, user: currentUser } = ctx as typeof ctx & { redirect: (url: string) => Response };
+    const { query, cookie, set, redirect, user: currentUser, session: currentSession } = ctx as typeof ctx & { redirect: (url: string) => Response };
     const { code, state } = query as { code?: string; state?: string };
     const storedState = cookie?.oauth_state?.value;
 
@@ -302,8 +302,8 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
 
       // Always create a fresh session after Discord login
       // (admin status or other attributes may have changed)
-      if (currentUser?.id) {
-        await lucia.invalidateSession(cookie.auth_session?.value ?? "");
+      if (currentSession) {
+        await lucia.invalidateSession(currentSession.id);
       }
       const session = await lucia.createSession(userId, {});
       const sessionCookie = lucia.createSessionCookie(session.id);

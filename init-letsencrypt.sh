@@ -49,11 +49,11 @@ fi
 echo "Downloading recommended TLS parameters..."
 mkdir -p "$DATA_PATH/conf"
 if [ ! -f "$DATA_PATH/conf/options-ssl-nginx.conf" ]; then
-  curl -sSf https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf \
+  curl -sSf https://raw.githubusercontent.com/certbot/certbot/v5.7.0/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf \
     > "$DATA_PATH/conf/options-ssl-nginx.conf"
 fi
 if [ ! -f "$DATA_PATH/conf/ssl-dhparams.pem" ]; then
-  curl -sSf https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem \
+  curl -sSf https://raw.githubusercontent.com/certbot/certbot/v5.7.0/certbot/certbot/ssl-dhparams.pem \
     > "$DATA_PATH/conf/ssl-dhparams.pem"
 fi
 
