@@ -21,7 +21,7 @@ COPY backend/package.json backend/bun.lock /temp/backend/
 RUN cd /temp/backend && bun install --frozen-lockfile
 
 # ── Stage 2: Build Next.js ───────────────────────────────
-FROM node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS build
+FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
 WORKDIR /app
 
 # Copy backend types after their dependency layer so source changes do not
@@ -49,7 +49,7 @@ ENV NODE_ENV=production
 RUN node node_modules/next/dist/bin/next build
 
 # ── Stage 3: Lean production runner ──────────────────────
-FROM node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS runner
+FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
