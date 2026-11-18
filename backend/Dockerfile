@@ -20,9 +20,11 @@ FROM base AS release
 ENV NODE_ENV=production
 
 COPY --from=install /temp/prod/node_modules node_modules
-COPY package.json .
-COPY src src
-COPY drizzle drizzle
+# The deployer's checkout can restrict group and other access.
+# Keep runtime files root-owned and readable by the bun user.
+COPY --chmod=644 package.json .
+COPY --chmod=u=rwX,go=rX src src
+COPY --chmod=u=rwX,go=rX drizzle drizzle
 
 # Create data directory for BunQueue SQLite persistence
 # Must exist and be writable before switching to non-root user
@@ -30,6 +32,7 @@ RUN mkdir -p /app/data && chown bun:bun /app/data
 
 # Run as non-root user (built into oven/bun images)
 USER bun
+RUN test -r src/index.ts && test -r drizzle/meta/_journal.json && test -r package.json
 
 EXPOSE 3001
 
