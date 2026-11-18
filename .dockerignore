@@ -42,6 +42,7 @@ init-letsencrypt.sh
 
 # Test / coverage
 **/coverage
+frontend/test-results
 
 # Lock files are INCLUDED (needed for frozen installs)
 # Do NOT ignore bun.lock

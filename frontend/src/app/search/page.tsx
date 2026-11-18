@@ -58,55 +58,53 @@ export default function SearchPage() {
 }
 
 function SearchContent() {
-  const searchParams = useSearchParams();
+  const initialQuery = useSearchParams().get("q")?.trim() ?? "";
+  return <CharacterSearch key={initialQuery} initialQuery={initialQuery} />;
+}
+
+function CharacterSearch({ initialQuery }: { initialQuery: string }) {
   const router = useRouter();
-  const initialQuery = searchParams.get("q") ?? "";
 
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(initialQuery));
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
 
-  const doSearch = useCallback(async (searchQuery: string, searchPage: number) => {
-    if (!searchQuery.trim()) {
-      setResults([]);
-      setTotal(0);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await api.api.characters.get({
-        query: {
-          search: searchQuery,
-          page: searchPage.toString(),
-          limit: "20",
-        },
+  const doSearch = useCallback((searchPage: number) => {
+    if (!initialQuery) return;
+    return api.api.characters.get({
+      query: { search: initialQuery, page: searchPage.toString(), limit: "20" },
+    })
+      .then(unwrapOrNull<{ characters: SearchResult[]; pagination: { total: number } }>)
+      .catch(() => null)
+      .then((data) => {
+        if (data) {
+          setResults(data.characters);
+          setTotal(data.pagination.total);
+        }
+        setLoading(false);
       });
-      const data = unwrapOrNull<{ characters: SearchResult[]; pagination: { total: number; page: number; limit: number; totalPages: number } }>(response);
-      if (data) {
-        setResults(data.characters);
-        setTotal(data.pagination?.total ?? 0);
-      }
-    } catch {
-      // API not available
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  }, [initialQuery]);
 
   useEffect(() => {
-    if (initialQuery) {
-      doSearch(initialQuery, 1);
-    }
-  }, [initialQuery, doSearch]);
+    void doSearch(1);
+  }, [doSearch]);
+
+  function loadPage(nextPage: number) {
+    setLoading(true);
+    setPage(nextPage);
+    void doSearch(nextPage);
+  }
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
-    router.push(`/search?q=${encodeURIComponent(query)}`);
-    doSearch(query, 1);
+    const submittedQuery = query.trim();
+    if (submittedQuery === initialQuery) {
+      if (submittedQuery) loadPage(1);
+    } else {
+      router.push(`/search?q=${encodeURIComponent(submittedQuery)}`);
+    }
   };
 
   return (
@@ -177,22 +175,14 @@ function SearchContent() {
               <Button
                 variant="outline"
                 disabled={page <= 1}
-                onClick={() => {
-                  const newPage = page - 1;
-                  setPage(newPage);
-                  doSearch(query, newPage);
-                }}
+                onClick={() => loadPage(page - 1)}
               >
                 Previous
               </Button>
               <Button
                 variant="outline"
                 disabled={page * 20 >= total}
-                onClick={() => {
-                  const newPage = page + 1;
-                  setPage(newPage);
-                  doSearch(query, newPage);
-                }}
+                onClick={() => loadPage(page + 1)}
               >
                 Next
               </Button>

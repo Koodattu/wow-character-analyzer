@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { api, unwrap } from "@/lib/api";
+import { api, unwrapOrNull } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -128,7 +128,7 @@ export default function DashboardPage() {
 
   // Battle.net characters
   const [bnetCharacters, setBnetCharacters] = useState<BnetCharacter[]>([]);
-  const [bnetCharsLoading, setBnetCharsLoading] = useState(false);
+  const [bnetCharsLoading, setBnetCharsLoading] = useState(true);
   const [selectedChars, setSelectedChars] = useState<Set<number>>(new Set());
 
   // Unlink state
@@ -156,18 +156,15 @@ export default function DashboardPage() {
   }, [authLoading, user, router]);
 
   // Fetch Battle.net characters when linked
-  const fetchBnetChars = useCallback(async () => {
+  const fetchBnetChars = useCallback(() => {
     if (!bnetLinked) return;
-    setBnetCharsLoading(true);
-    try {
-      const res = await api.api.user.characters.get();
-      const data = unwrap<{ characters: BnetCharacter[]; linked: boolean }>(res);
-      setBnetCharacters(data.characters ?? []);
-    } catch {
-      // error fetching
-    } finally {
-      setBnetCharsLoading(false);
-    }
+    return api.api.user.characters.get()
+      .then(unwrapOrNull<{ characters: BnetCharacter[] }>)
+      .catch(() => null)
+      .then((data) => {
+        if (data) setBnetCharacters(data.characters ?? []);
+        setBnetCharsLoading(false);
+      });
   }, [bnetLinked]);
 
   useEffect(() => {
@@ -175,19 +172,15 @@ export default function DashboardPage() {
   }, [fetchBnetChars]);
 
   // Fetch queued characters
-  const fetchQueued = useCallback(async () => {
+  const fetchQueued = useCallback(() => {
     if (!user) return;
-    try {
-      const res = await api.api.user.queued.get();
-      const data = unwrap<{ queuedCharacters: QueuedCharacterRow[] }>(res);
-      if (Array.isArray(data.queuedCharacters)) {
-        setQueuedCharacters(mapQueuedRows(data.queuedCharacters));
-      }
-    } catch {
-      // error
-    } finally {
-      setQueuedLoading(false);
-    }
+    return api.api.user.queued.get()
+      .then(unwrapOrNull<{ queuedCharacters: QueuedCharacterRow[] }>)
+      .catch(() => null)
+      .then((data) => {
+        if (Array.isArray(data?.queuedCharacters)) setQueuedCharacters(mapQueuedRows(data.queuedCharacters));
+        setQueuedLoading(false);
+      });
   }, [user]);
 
   useEffect(() => {
@@ -401,7 +394,10 @@ export default function DashboardPage() {
           <CardContent>
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={fetchBnetChars} disabled={bnetCharsLoading}>
+                <Button variant="outline" size="sm" disabled={bnetCharsLoading} onClick={() => {
+                  setBnetCharsLoading(true);
+                  void fetchBnetChars();
+                }}>
                   {bnetCharsLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
                   {bnetCharacters.length > 0 ? "Refresh Characters" : "Load Characters"}
                 </Button>

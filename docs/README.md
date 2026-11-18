@@ -19,12 +19,12 @@ WoW Character Analyzer is a full-stack TypeScript application for analyzing Worl
 | Authentication      | **Lucia**                       | 3.2.x   | Modern, session-based auth library                               |
 | Auth DB Adapter     | **@lucia-auth/adapter-drizzle** | 1.1.x   | Lucia adapter for Drizzle ORM                                    |
 | ID Generation       | **@paralleldrive/cuid2**        | 3.3.x   | Collision-resistant, URL-safe unique IDs                         |
-| API Docs            | **@elysiajs/swagger**           | 1.3.x   | Auto-generated OpenAPI/Swagger docs from Elysia schemas          |
+| API Docs            | **@elysia/openapi**           | 1.4.x   | Auto-generated OpenAPI/Swagger docs from Elysia schemas          |
 | Type Bridge         | **Eden Treaty**                 | 1.4.x   | Type-safe RPC client generated from Elysia's exported app type   |
-| Frontend Framework  | **Next.js**                     | 16.1.x  | App Router, Server Components, streaming SSR                     |
-| UI Library          | **React**                       | 19.2.x  | Concurrent rendering, Server Components                          |
+| Frontend Framework  | **Next.js**                     | 16.4.x  | App Router, Server Components, streaming SSR                     |
+| UI Library          | **React**                       | 19.3.x  | Concurrent rendering, Server Components                          |
 | CSS Framework       | **Tailwind CSS**                | 4.x     | Utility-first CSS via PostCSS plugin                             |
-| Icons               | **Lucide React**                | 0.564.x | Consistent, tree-shakeable SVG icon set                          |
+| Icons               | **Lucide React**                | 1.75.x | Consistent, tree-shakeable SVG icon set                          |
 | Utility: classnames | **clsx** + **tailwind-merge**   | latest  | Conditional class composition with Tailwind conflict resolution  |
 | Schema Validation   | **TypeBox (@sinclair/typebox)** | 0.34.x  | JSON Schema-compatible type validation (shared backend/frontend) |
 
@@ -177,7 +177,7 @@ This means:
 
 ## API Documentation
 
-**@elysiajs/swagger** auto-generates OpenAPI documentation from Elysia's TypeBox schemas. Available at `/swagger` in development. Every route with a schema definition is automatically documented with request/response types.
+**@elysia/openapi** auto-generates OpenAPI documentation from Elysia's TypeBox schemas. Available at `/swagger` in development. Every route with a schema definition is automatically documented with request/response types.
 
 ---
 
@@ -224,6 +224,12 @@ bun test --coverage            # with coverage
 
 # Linting
 cd frontend && bun lint
+
+# Browser regression tests (with the frontend running on localhost:3000)
+# Set PLAYWRIGHT_BASE_URL to test a different local frontend.
+cd frontend
+bunx playwright install chromium
+bun run test:e2e
 ```
 
 ---
@@ -236,7 +242,7 @@ Eden Treaty creates a fully typed RPC client from the Elysia app type. Routes ma
 
 ```typescript
 // frontend/src/lib/api.ts
-import { treaty } from "@elysiajs/eden";
+import { treaty } from "@elysia/eden";
 import type { App } from "../../../backend/src/index";
 
 export const api = treaty<App>("http://localhost:3001");

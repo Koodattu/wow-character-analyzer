@@ -1,4 +1,4 @@
-import { treaty } from "@elysiajs/eden";
+import { treaty } from "@elysia/eden";
 import type { App } from "../../../backend/src/index";
 import { API_BASE_URL } from "@/lib/env";
 

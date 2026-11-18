@@ -80,10 +80,8 @@ export default function AdminPage() {
     }
   }, [authLoading, user, router]);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [queueRes, rateRes, charactersRes] = await Promise.all([api.api.admin.queue.get(), api.api.admin["rate-limits"].get(), api.api.admin.characters.get()]);
-
+  const fetchData = useCallback(() => Promise.all([api.api.admin.queue.get(), api.api.admin["rate-limits"].get(), api.api.admin.characters.get()])
+    .then(([queueRes, rateRes, charactersRes]) => {
       const queueData = unwrapOrNull<QueueOverview>(queueRes);
       if (queueData) setQueueData(queueData);
 
@@ -92,13 +90,12 @@ export default function AdminPage() {
 
       const charsData = unwrapOrNull<{ characters: AdminCharacter[] }>(charactersRes);
       if (charsData) setAdminCharacters(charsData.characters ?? []);
-    } catch {
-      // API error
-    } finally {
+    })
+    .catch(() => { /* Keep the last successful snapshot on a polling error. */ })
+    .finally(() => {
       setLoading(false);
       setCharactersLoading(false);
-    }
-  }, []);
+    }), []);
 
   useEffect(() => {
     if (user?.isAdmin) {

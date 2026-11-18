@@ -7,7 +7,7 @@
 # backend types via relative path: ../../../backend/src/)
 # ──────────────────────────────────────────────────────────
 
-FROM oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0 AS bun-base
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS bun-base
 WORKDIR /app
 
 # ── Stage 1: Install all dependencies (including dev) ────
@@ -21,7 +21,7 @@ COPY backend/package.json backend/bun.lock /temp/backend/
 RUN cd /temp/backend && bun install --frozen-lockfile
 
 # ── Stage 2: Build Next.js ───────────────────────────────
-FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
+FROM node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS build
 WORKDIR /app
 
 # Copy backend types after their dependency layer so source changes do not
@@ -44,12 +44,11 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 ENV NODE_ENV=production
 
-# Bun 1.3.x can crash after a successful Next.js 16 build. Use the supported
-# Node LTS runtime for the framework build and final standalone server.
+# Use the same Node LTS runtime for the build and standalone server.
 RUN node node_modules/next/dist/bin/next build
 
 # ── Stage 3: Lean production runner ──────────────────────
-FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runner
+FROM node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

@@ -9,8 +9,8 @@ A comprehensive, library-by-library breakdown of the technologies powering this 
 - [Runtime: Bun](#runtime-bun)
 - [Backend Framework: Elysia](#backend-framework-elysia)
 - [Schema Validation: TypeBox](#schema-validation-typebox)
-- [API Documentation: Elysia Swagger](#api-documentation-elysia-swagger)
-- [CORS: @elysiajs/cors](#cors-elysiacors)
+- [API Documentation: Elysia OpenAPI](#api-documentation-elysia-openapi)
+- [CORS: @elysia/cors](#cors-elysiacors)
 - [Type Bridge: Eden Treaty](#type-bridge-eden-treaty)
 - [Database: PostgreSQL](#database-postgresql)
 - [ORM: Drizzle ORM](#orm-drizzle-orm)
@@ -75,7 +75,7 @@ bunx <command>         # equivalent to npx (run bin from node_modules)
 
 | Property     | Value                                                 |
 | ------------ | ----------------------------------------------------- |
-| Package      | `elysia` ^1.4.25                                      |
+| Package      | `elysia` ^1.4.32                                      |
 | Role         | HTTP framework (routing, validation, lifecycle hooks) |
 | Designed for | Bun runtime specifically                              |
 
@@ -196,7 +196,7 @@ Validation errors return a structured 422 response automatically.
 
 | Property | Value                                                        |
 | -------- | ------------------------------------------------------------ |
-| Package  | `@sinclair/typebox` ^0.34.48                                 |
+| Package  | `@sinclair/typebox` ^0.34.52                                 |
 | Role     | Runtime + compile-time schema validation                     |
 | Used by  | Both backend (Elysia validation) and frontend (shared types) |
 
@@ -225,20 +225,20 @@ TypeBox is shared between backend and frontend (`@sinclair/typebox` appears in b
 
 ---
 
-## API Documentation: Elysia Swagger
+## API Documentation: Elysia OpenAPI
 
 | Property | Value                                        |
 | -------- | -------------------------------------------- |
-| Package  | `@elysiajs/swagger` ^1.3.1                   |
+| Package  | `@elysia/openapi` ^1.4.17                   |
 | Role     | Auto-generated OpenAPI/Swagger documentation |
-| Endpoint | `/swagger` (default)                         |
+| Endpoint | `/swagger`                         |
 
-Installed as an Elysia plugin, it introspects all registered routes and their TypeBox schemas to produce a live OpenAPI spec with an interactive Swagger UI.
+Installed as an Elysia plugin, it introspects all registered routes and their TypeBox schemas to produce a live OpenAPI spec with an interactive Scalar UI.
 
 ```typescript
-import { swagger } from "@elysiajs/swagger";
+import { openapi } from "@elysia/openapi";
 
-const app = new Elysia().use(swagger());
+const app = new Elysia().use(openapi({ path: "/swagger" }));
 // ... routes
 ```
 
@@ -246,15 +246,15 @@ Every route with a `body`, `query`, `params`, or `response` schema is automatica
 
 ---
 
-## CORS: @elysiajs/cors
+## CORS: @elysia/cors
 
 | Property | Value                                    |
 | -------- | ---------------------------------------- |
-| Package  | `@elysiajs/cors` ^1.4.1                  |
+| Package  | `@elysia/cors` ^1.4.3                  |
 | Role     | Cross-Origin Resource Sharing middleware |
 
 ```typescript
-import { cors } from "@elysiajs/cors";
+import { cors } from "@elysia/cors";
 
 const app = new Elysia().use(
   cors({
@@ -274,7 +274,7 @@ Required because the frontend (port 3000) and backend (port 3001) run on differe
 
 | Property | Value                           |
 | -------- | ------------------------------- |
-| Package  | `@elysiajs/eden` ^1.4.8         |
+| Package  | `@elysia/eden` ^1.4.10         |
 | Role     | End-to-end type-safe API client |
 | Location | Frontend only                   |
 
@@ -288,7 +288,7 @@ Eden Treaty generates a fully typed RPC-style client from the Elysia backend's e
 
 ```typescript
 // frontend/src/lib/api.ts
-import { treaty } from "@elysiajs/eden";
+import { treaty } from "@elysia/eden";
 import type { App } from "../../../backend/src/index";
 
 export const api = treaty<App>("http://localhost:3001");
@@ -358,7 +358,7 @@ const api = treaty<App>("http://localhost:3001", {
 Eden can accept an Elysia instance directly instead of a URL, enabling in-process testing:
 
 ```typescript
-import { treaty } from "@elysiajs/eden";
+import { treaty } from "@elysia/eden";
 
 const app = new Elysia().get("/", () => "ok");
 const client = treaty(app); // no HTTP, direct function call
@@ -399,7 +399,7 @@ export const db = drizzle(client);
 
 | Property | Value                            |
 | -------- | -------------------------------- |
-| Package  | `drizzle-orm` ^0.45.1            |
+| Package  | `drizzle-orm` ^0.45.4            |
 | Role     | Type-safe database queries       |
 | Driver   | `postgres` (postgres.js) or `pg` |
 
@@ -508,7 +508,7 @@ This eliminates manual type duplication. Change the database schema → validati
 
 | Property | Value                                  |
 | -------- | -------------------------------------- |
-| Package  | `drizzle-kit` ^0.31.9 (dev dependency) |
+| Package  | `drizzle-kit` ^0.31.11 (dev dependency) |
 | Role     | Database migrations Tooling            |
 
 Drizzle Kit reads Drizzle schema files and manages database migrations:
@@ -620,7 +620,7 @@ Used for all primary keys: users, sessions, characters, etc.
 
 | Property | Value                                                |
 | -------- | ---------------------------------------------------- |
-| Package  | `next` 16.1.6                                        |
+| Package  | `next` 16.4.6                                        |
 | Role     | Frontend framework (routing, SSR, static generation) |
 | Router   | App Router (file-system based)                       |
 
@@ -684,7 +684,7 @@ import { api } from "@/lib/api"; // → frontend/src/lib/api.ts
 
 | Property | Value                               |
 | -------- | ----------------------------------- |
-| Package  | `react` 19.2.3 / `react-dom` 19.2.3 |
+| Package  | `react` 19.3.1 / `react-dom` 19.3.1 |
 | Role     | Component library, rendering engine |
 
 React 19 brings:
@@ -748,7 +748,7 @@ All styles are generated at build time. No CSS-in-JS runtime overhead, no style 
 | Package          | Version | Purpose                                  |
 | ---------------- | ------- | ---------------------------------------- |
 | `clsx`           | ^2.1.1  | Conditionally join class names           |
-| `tailwind-merge` | ^3.4.1  | Merge Tailwind classes without conflicts |
+| `tailwind-merge` | ^3.7.0  | Merge Tailwind classes without conflicts |
 
 ### clsx
 
@@ -796,7 +796,7 @@ export function cn(...inputs: ClassValue[]) {
 
 | Property | Value                       |
 | -------- | --------------------------- |
-| Package  | `lucide-react` ^0.564.0     |
+| Package  | `lucide-react` ^1.75.0     |
 | Role     | SVG icon library            |
 | Icons    | 1500+ icons, tree-shakeable |
 
@@ -842,7 +842,7 @@ All icons accept `className`, `size`, `color`, `strokeWidth` props.
 | Property       | Value                             |
 | -------------- | --------------------------------- |
 | Package        | `eslint` ^9                       |
-| Config extends | `eslint-config-next` 16.1.6       |
+| Config extends | `eslint-config-next` 16.4.6       |
 | Config format  | Flat config (`eslint.config.mjs`) |
 
 ESLint 9 uses the new flat config format. `eslint-config-next` includes rules for React, JSX accessibility, and Next.js-specific patterns.
@@ -855,53 +855,7 @@ cd frontend && bun lint
 
 ## Full Dependency Manifest
 
-### Backend Dependencies
-
-| Package                       | Version  | Category                 |
-| ----------------------------- | -------- | ------------------------ |
-| `elysia`                      | ^1.4.25  | HTTP framework           |
-| `@elysiajs/cors`              | ^1.4.1   | CORS middleware          |
-| `@elysiajs/swagger`           | ^1.3.1   | OpenAPI documentation    |
-| `@sinclair/typebox`           | ^0.34.48 | Schema validation        |
-| `drizzle-orm`                 | ^0.45.1  | Database ORM             |
-| `drizzle-typebox`             | ^0.3.3   | Schema-to-TypeBox bridge |
-| `lucia`                       | ^3.2.2   | Authentication           |
-| `@lucia-auth/adapter-drizzle` | ^1.1.0   | Lucia DB adapter         |
-| `@paralleldrive/cuid2`        | ^3.3.0   | ID generation            |
-
-### Backend Dev Dependencies
-
-| Package       | Version | Category             |
-| ------------- | ------- | -------------------- |
-| `@types/bun`  | ^1.3.9  | Bun type definitions |
-| `bun-types`   | latest  | Bun global types     |
-| `drizzle-kit` | ^0.31.9 | Migration tooling    |
-
-### Frontend Dependencies
-
-| Package             | Version  | Category               |
-| ------------------- | -------- | ---------------------- |
-| `next`              | 16.1.6   | Framework              |
-| `react`             | 19.2.3   | UI library             |
-| `react-dom`         | 19.2.3   | React DOM renderer     |
-| `@elysiajs/eden`    | ^1.4.8   | Type-safe API client   |
-| `@sinclair/typebox` | ^0.34.48 | Shared schema types    |
-| `clsx`              | ^2.1.1   | Class name utility     |
-| `tailwind-merge`    | ^3.4.1   | Tailwind class merging |
-| `lucide-react`      | ^0.564.0 | Icon library           |
-
-### Frontend Dev Dependencies
-
-| Package                | Version | Category           |
-| ---------------------- | ------- | ------------------ |
-| `tailwindcss`          | ^4      | CSS framework      |
-| `@tailwindcss/postcss` | ^4      | PostCSS plugin     |
-| `typescript`           | ^5      | Type checker       |
-| `eslint`               | ^9      | Linter             |
-| `eslint-config-next`   | 16.1.6  | Lint rules         |
-| `@types/node`          | ^20     | Node type defs     |
-| `@types/react`         | ^19     | React type defs    |
-| `@types/react-dom`     | ^19     | ReactDOM type defs |
+The [backend manifest](../backend/package.json) and [frontend manifest](../frontend/package.json) list each workspace’s runtime, development, and test dependencies. The corresponding [backend lockfile](../backend/bun.lock) and [frontend lockfile](../frontend/bun.lock) record the exact versions used in Docker builds.
 
 ---
 

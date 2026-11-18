@@ -31,17 +31,11 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchUser = useCallback(async () => {
-    try {
-      const response = await api.api.auth.me.get();
-      const data = unwrapOrNull<AuthMeResponse>(response);
-      setUser(data?.user ?? null);
-    } catch {
-      setUser(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const fetchUser = useCallback(() => api.api.auth.me.get()
+    .then(unwrapOrNull<AuthMeResponse>)
+    .then((data) => setUser(data?.user ?? null))
+    .catch(() => setUser(null))
+    .finally(() => setIsLoading(false)), []);
 
   useEffect(() => {
     fetchUser();

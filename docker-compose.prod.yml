@@ -13,7 +13,7 @@
 services:
   # ── Nginx Reverse Proxy ─────────────────────────────────
   nginx:
-    image: nginx:1.30.4-alpine@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46
+    image: nginx:1.30.6-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
     restart: unless-stopped
     ports:
       - "80:80"
@@ -50,7 +50,7 @@ services:
 
   # ── Certbot (Let's Encrypt) ─────────────────────────────
   certbot:
-    image: certbot/certbot:v5.7.0@sha256:34ee91d2f43008eb78a007d22f23ed4b2eaa9a454cb27ca2c042b49527a695b4
+    image: certbot/certbot:v5.10.0@sha256:c5698da859429ccee0fcc299a8000368198222d1f9e789ab6e388b491e8ce06d
     restart: unless-stopped
     volumes:
       - ./certbot/conf:/etc/letsencrypt

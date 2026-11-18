@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
-import { cors } from "@elysiajs/cors";
-import { swagger } from "@elysiajs/swagger";
+import { cors } from "@elysia/cors";
+import { apiDocs } from "./lib/api-docs";
 import { log } from "./lib/logger";
 import { runMigrations } from "./db/migrate";
 import { authRoutes } from "./auth/routes";
@@ -89,17 +89,7 @@ const app = new Elysia()
       allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
     }),
   )
-  .use(
-    swagger({
-      documentation: {
-        info: {
-          title: "WoW Character Analyzer API",
-          version: "1.0.0",
-          description: "API for analyzing World of Warcraft character PvE performance",
-        },
-      },
-    }),
-  )
+  .use(apiDocs)
   .onError(({ error, set }) => {
     log.error({ err: error }, "Unhandled server error");
 

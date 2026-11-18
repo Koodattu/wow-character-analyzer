@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import { api, unwrap } from "@/lib/api";
@@ -246,27 +246,20 @@ export default function CharacterProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchCharacter = useCallback(async () => {
-    if (!realm || !name) {
-      setError("Invalid character URL");
-      setLoading(false);
-      return;
-    }
-    try {
-      const response = await api.api.characters({ realm })({ name }).get();
-      const d = unwrap<CharacterData>(response);
-      setData(d);
-      setError(d.error && !d.character ? d.error : null);
-    } catch {
-      setError("Failed to fetch character data");
-    } finally {
-      setLoading(false);
-    }
-  }, [realm, name]);
-
   useEffect(() => {
-    fetchCharacter();
-  }, [fetchCharacter]);
+    if (!realm || !name) return;
+    let current = true;
+    api.api.characters({ realm })({ name }).get()
+      .then(unwrap<CharacterData>)
+      .then((profile) => {
+        if (!current) return;
+        setData(profile);
+        setError(profile.error && !profile.character ? profile.error : null);
+      })
+      .catch(() => { if (current) setError("Failed to fetch character data"); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
+  }, [realm, name]);
 
   useEffect(() => {
     if (!realm || !name) return;
@@ -278,22 +271,9 @@ export default function CharacterProfilePage() {
     });
   }, [realm, name]);
 
-  // Default expansion tab: first with kills
-  const defaultExpansionSlug = useMemo(() => {
-    if (!data?.raidData) return undefined;
-    for (const exp of data.raidData) for (const raid of exp.raids) if (raid.bosses.some((b) => b.totalKills > 0)) return exp.slug;
-    return data.raidData[0]?.slug;
-  }, [data?.raidData]);
-
-  // Default M+ season tab: first with a score
-  const defaultMplusSeason = useMemo(() => {
-    if (!data?.mythicPlusData?.seasons?.length) return undefined;
-    const withScore = data.mythicPlusData.seasons.find((s) => s.score && (s.score.overall ?? 0) > 0);
-    return withScore?.seasonSlug ?? data.mythicPlusData.seasons[0]?.seasonSlug;
-  }, [data?.mythicPlusData?.seasons]);
-
   // --- Loading ---
-  if (loading) {
+  const profileError = !realm || !name ? "Invalid character URL" : error;
+  if (loading && !profileError) {
     return (
       <div className="container mx-auto max-w-screen-2xl px-4 py-8 space-y-6">
         <div className="flex items-center gap-6">
@@ -315,12 +295,12 @@ export default function CharacterProfilePage() {
   }
 
   // --- Not Found ---
-  if (error || !data?.character) {
+  if (profileError || !data?.character) {
     return (
       <div className="container mx-auto max-w-screen-2xl px-4 py-16 flex flex-col items-center justify-center gap-4">
         <AlertTriangle className="h-16 w-16 text-muted-foreground" />
         <h1 className="text-2xl font-bold text-foreground">Character not found</h1>
-        <p className="text-muted-foreground">{error ?? `Could not find "${decodeURIComponent(name)}" on ${decodeURIComponent(realm)}.`}</p>
+        <p className="text-muted-foreground">{profileError ?? `Could not find "${decodeURIComponent(name)}" on ${decodeURIComponent(realm)}.`}</p>
       </div>
     );
   }
@@ -328,7 +308,11 @@ export default function CharacterProfilePage() {
   const { character, profile, aiSummary, processing, achievements, raidData, mythicPlusData } = data;
   const cuttingEdge = achievements.filter((a) => a.type === "cutting_edge");
   const aheadOfTheCurve = achievements.filter((a) => a.type === "ahead_of_the_curve");
-  const hasRaidKills = raidData.some((exp) => exp.raids.some((r) => r.bosses.some((b) => b.totalKills > 0)));
+  const firstExpansionWithKills = raidData.find((exp) => exp.raids.some((r) => r.bosses.some((b) => b.totalKills > 0)));
+  const hasRaidKills = Boolean(firstExpansionWithKills);
+  const defaultExpansionSlug = firstExpansionWithKills?.slug ?? raidData[0]?.slug;
+  const seasons = mythicPlusData?.seasons;
+  const defaultMplusSeason = seasons?.find((season) => (season.score?.overall ?? 0) > 0)?.seasonSlug ?? seasons?.[0]?.seasonSlug;
 
   function getRaidSpecs(raid: RaidData): string[] {
     const s = new Set<string>();
